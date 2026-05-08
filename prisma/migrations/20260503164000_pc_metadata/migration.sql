@@ -1,0 +1,3 @@
+ALTER TABLE "PC" ADD COLUMN "ipAddress" TEXT;
+ALTER TABLE "PC" ADD COLUMN "machineName" TEXT;
+ALTER TABLE "PCClient" ADD COLUMN "installedVersion" TEXT;
