@@ -21,11 +21,13 @@ import { AppButton } from "@/components/ui/AppButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { OverlayDrawer } from "@/components/ui/OverlayDrawer";
 import { PlayerHome } from "@/components/dashboard/player/PlayerHome";
+import { PlayerDashboard } from "@/components/dashboard/player/PlayerDashboard";
 import { PlayerWallet } from "@/components/dashboard/player/PlayerWallet";
 import { PlayerActivity } from "@/components/dashboard/player/PlayerActivity";
 import { PlayerZones } from "@/components/dashboard/player/PlayerZones";
 import { PlayerUpdates } from "@/components/dashboard/player/PlayerUpdates";
 import { PlayerProfile } from "@/components/dashboard/player/PlayerProfile";
+import { ZoneDashboard } from "@/components/dashboard/zone/ZoneDashboard";
 import { ZoneHome } from "@/components/dashboard/zone/ZoneHome";
 import { ZonePCs } from "@/components/dashboard/zone/ZonePCs";
 import { ZoneCustomers } from "@/components/dashboard/zone/ZoneCustomers";
@@ -33,6 +35,7 @@ import { ZoneSessions } from "@/components/dashboard/zone/ZoneSessions";
 import { ZoneEarnings } from "@/components/dashboard/zone/ZoneEarnings";
 import { ZoneUpdates } from "@/components/dashboard/zone/ZoneUpdates";
 import { ZoneSettings } from "@/components/dashboard/zone/ZoneSettings";
+import { AdminDashboard } from "@/components/dashboard/admin/AdminDashboard";
 import { AdminHome } from "@/components/dashboard/admin/AdminHome";
 import { AdminZones } from "@/components/dashboard/admin/AdminZones";
 import { AdminPlayers } from "@/components/dashboard/admin/AdminPlayers";
@@ -61,15 +64,15 @@ const defaultView: Record<DashboardRole, RoleNavKey> = {
 };
 
 const roleTitle: Record<DashboardRole, string> = {
-  player: "Player Dashboard",
-  zone: "Zone Owner Dashboard",
-  admin: "Ezzstar Admin Dashboard"
+  player: "SPICA Player App",
+  zone: "SPICA Zone OS",
+  admin: "Ezzstar Control Center"
 };
 
 const roleEyebrow: Record<DashboardRole, string> = {
-  player: "Player Network",
-  zone: "Zone Operator Console",
-  admin: "Ezzstar Command Center"
+  player: "Mobile companion",
+  zone: "Installed operator software",
+  admin: "Ezzstar Web App"
 };
 
 const isDemoMode = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -1919,16 +1922,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
       );
     }
 
-    if (activeView === "Wallet") {
-      return <PlayerWallet>{renderPlayerWalletPage()}</PlayerWallet>;
-    }
-
-    if (activeView === "Nearby Zones" || activeView === "Zones") {
-      return <PlayerZones>{renderPlayerZonesPage()}</PlayerZones>;
-    }
-
-    if (activeView === "Active Session") {
-      return (
+    const activeSessionPanel = (
         <div className="space-y-5">
           {playerActiveSession ? renderSessionCards([playerActiveSession]) : (
             <EmptyState
@@ -1937,33 +1931,9 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
             />
           )}
         </div>
-      );
-    }
+    );
 
-    if (activeView === "Rewards" || activeView === "Profile") {
-      return <PlayerProfile>{renderPlayerProfilePage()}</PlayerProfile>;
-    }
-
-    if (activeView === "Play History" || activeView === "Activity") {
-      return <PlayerActivity>{renderPlayerActivityPage()}</PlayerActivity>;
-    }
-
-    if (activeView === "Tournaments") {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-          <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Tournament Hub</p>
-          <h3 className="mt-3 text-2xl font-semibold text-white">Arena events are being prepared</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">This page is reserved for upcoming zone tournaments, leaderboard seasons, and Ezzstar community events.</p>
-        </section>
-      );
-    }
-
-    if (activeView === "Updates") {
-      return <PlayerUpdates>{renderPlayerUpdatesPage()}</PlayerUpdates>;
-    }
-
-    return (
-      <PlayerHome>
+    const homePanel = (
         <div className="space-y-5">
           {renderPlayerEcosystemPanel()}
           <WalletCard onBuySpica={handleBuySpica} onPlayerChange={setSelectedPlayerId} onRequestWithdrawal={handleRequestWithdrawal} players={players} selectedPlayerId={selectedPlayerId} />
@@ -1981,182 +1951,176 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
             {playerCompletedSessions.length ? renderSessionCards(playerCompletedSessions.slice(0, 4)) : <EmptyState title="No session history yet" description="Completed gaming sessions will appear here after you play at a connected zone." />}
           </section>
         </div>
-      </PlayerHome>
+    );
+
+    return (
+      <PlayerDashboard
+        activeView={activeView}
+        home={homePanel}
+        profile={renderPlayerProfilePage()}
+        sessions={activeView === "Active Session" ? activeSessionPanel : renderPlayerActivityPage()}
+        updates={renderPlayerUpdatesPage()}
+        wallet={renderPlayerWalletPage()}
+        zones={renderPlayerZonesPage()}
+      />
     );
   }
 
   function renderZoneDashboard() {
     if (!zones.length) {
       return (
-        <ZoneHome>
-          <EmptyState
-            title="Your zone is pending approval"
-            description="Once Ezzstar approves or creates your zone, PC operations, sessions, customers, and earnings will appear here."
-          />
-        </ZoneHome>
+        <ZoneDashboard
+          activeView={activeView}
+          customers={null}
+          emptyState={(
+            <EmptyState
+              title="Your zone is pending approval"
+              description="Once Ezzstar approves or creates your zone, PC operations, sessions, customers, and earnings will appear here."
+            />
+          )}
+          home={null}
+          pcs={null}
+          sessions={null}
+          settlements={null}
+          updates={null}
+        />
       );
     }
 
-    if (activeView === "PC Control" || activeView === "PCs") {
-      return (
-        <ZonePCs>
-          <div className="space-y-5">
-            {renderZoneOperatorStartPanel()}
-            <PairingRequestsPanel />
-            {renderPcRegistrationPanel()}
-            {renderPcManagementPanel()}
-            {renderZonePcControl(ownerZone)}
-          </div>
-        </ZonePCs>
-      );
-    }
+    const dailyBreakdown = Array.from({ length: 7 }, (_, index) => {
+      const dayStart = new Date(now);
+      dayStart.setHours(0, 0, 0, 0);
+      dayStart.setDate(dayStart.getDate() - index);
+      const dayEnd = dayStart.getTime() + 24 * 60 * 60 * 1000;
+      const daySessions = ownerSessions.filter((session) => session.startTime >= dayStart.getTime() && session.startTime < dayEnd);
+      const gross = daySessions.reduce((sum, session) => sum + session.grossSpica, 0);
+      return {
+        label: dayStart.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        sessions: daySessions.length,
+        gross,
+        commission: Math.round(gross * 0.1),
+        net: Math.round(gross * 0.9)
+      };
+    });
 
-    if (activeView === "Live Sessions" || activeView === "Sessions") {
-      return <ZoneSessions>{renderZoneSessionHistoryPanel()}</ZoneSessions>;
-    }
+    const pcsPanel = (
+      <div className="space-y-5">
+        {renderZoneOperatorStartPanel()}
+        <PairingRequestsPanel />
+        {renderPcRegistrationPanel()}
+        {renderPcManagementPanel()}
+        {renderZonePcControl(ownerZone)}
+      </div>
+    );
 
-    if (activeView === "Earnings") {
-      const dailyBreakdown = Array.from({ length: 7 }, (_, index) => {
-        const dayStart = new Date(now);
-        dayStart.setHours(0, 0, 0, 0);
-        dayStart.setDate(dayStart.getDate() - index);
-        const dayEnd = dayStart.getTime() + 24 * 60 * 60 * 1000;
-        const daySessions = ownerSessions.filter((session) => session.startTime >= dayStart.getTime() && session.startTime < dayEnd);
-        const gross = daySessions.reduce((sum, session) => sum + session.grossSpica, 0);
-        return {
-          label: dayStart.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-          sessions: daySessions.length,
-          gross,
-          commission: Math.round(gross * 0.1),
-          net: Math.round(gross * 0.9)
-        };
-      });
-
-      return (
-        <ZoneEarnings>
-        <div className="space-y-5">
-          {renderZoneAnalyticsPanel()}
-          <div className="grid gap-5 md:grid-cols-3">
-            <StatCard detail="Gross SPICA in this zone" icon={Coins} title="Zone Earnings" value={formatSpica(ownerGross)} />
-            <StatCard detail="After 10% Ezzstar fee" icon={Banknote} title="Net Settlement" tone="green" value={formatSpica(Math.round(ownerGross * 0.9))} />
-            <StatCard detail="PKR equivalent at mock rate" icon={Landmark} title="PKR Payout" tone="purple" value={formatPkr(spicaToPkr(Math.round(ownerGross * 0.9)))} />
-          </div>
-          <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-            <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Daily Breakdown</p>
-            <div className="mt-4 grid gap-3 md:grid-cols-7">
-              {dailyBreakdown.reverse().map((day) => (
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3" key={day.label}>
-                  <p className="text-xs text-slate-500">{day.label}</p>
-                  <p className="mt-2 text-lg font-semibold text-white">{formatSpica(day.gross)}</p>
-                  <p className="mt-1 text-xs text-slate-500">{day.sessions} sessions</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <SettlementTable settlements={ownerSettlements} />
+    const settlementsPanel = (
+      <div className="space-y-5">
+        {renderZoneAnalyticsPanel()}
+        <div className="grid gap-5 md:grid-cols-3">
+          <StatCard detail="Gross SPICA in this zone" icon={Coins} title="Zone Earnings" value={formatSpica(ownerGross)} />
+          <StatCard detail="After 10% Ezzstar fee" icon={Banknote} title="Net Settlement" tone="green" value={formatSpica(Math.round(ownerGross * 0.9))} />
+          <StatCard detail="PKR equivalent at mock rate" icon={Landmark} title="PKR Payout" tone="purple" value={formatPkr(spicaToPkr(Math.round(ownerGross * 0.9)))} />
         </div>
-        </ZoneEarnings>
-      );
-    }
-
-    if (activeView === "Settlements") {
-      return <SettlementTable settlements={ownerSettlements} />;
-    }
-
-    if (activeView === "Player Activity" || activeView === "Customers") {
-      return <ZoneCustomers>{renderZoneCustomersPanel()}</ZoneCustomers>;
-    }
-
-    if (activeView === "Updates") {
-      return (
-        <ZoneUpdates>
-        <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-            <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Zone Updates</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">{editingAnnouncementId ? "Edit announcement" : "Create announcement"}</h3>
-            <div className="mt-5 space-y-3">
-              <input className="app-input w-full" onChange={(event) => setAnnouncementTitle(event.target.value)} placeholder="Title" value={announcementTitle} />
-              <textarea className="app-input min-h-28 w-full resize-none" onChange={(event) => setAnnouncementMessage(event.target.value)} placeholder="Message for players" value={announcementMessage} />
-              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 transition hover:border-cyan-200/30">
-                <span>
-                  <span className="block text-sm font-semibold text-white">Announcement media</span>
-                  <span className="mt-1 block text-xs text-slate-500">{uploadingMedia === "announcement-media" ? "Uploading..." : announcementMediaUrl ? "Media attached" : "Attach image or PDF"}</span>
-                </span>
-                <UploadCloud className="h-4 w-4 text-cyan-100" />
-                <input
-                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
-                  className="sr-only"
-                  disabled={uploadingMedia === "announcement-media"}
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    const result = await uploadMedia(file, "announcement-media", { zoneId: ownerZone.id });
-                    if (result?.publicUrl) setAnnouncementMediaUrl(result.publicUrl);
-                    event.target.value = "";
-                  }}
-                  type="file"
-                />
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <select className="app-input" onChange={(event) => setAnnouncementType(event.target.value as ZoneAnnouncement["type"])} value={announcementType}>
-                  <option value="general">General</option>
-                  <option value="event">Event</option>
-                  <option value="maintenance">Maintenance</option>
-                  <option value="offer">Offer</option>
-                </select>
-                <select className="app-input" onChange={(event) => setAnnouncementVisibility(event.target.value as ZoneAnnouncement["visibility"])} value={announcementVisibility}>
-                  <option value="public">Public</option>
-                  <option value="followers">Followers</option>
-                  <option value="customers">Customers</option>
-                </select>
+        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Daily Breakdown</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-7">
+            {[...dailyBreakdown].reverse().map((day) => (
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-3" key={day.label}>
+                <p className="text-xs text-slate-500">{day.label}</p>
+                <p className="mt-2 text-lg font-semibold text-white">{formatSpica(day.gross)}</p>
+                <p className="mt-1 text-xs text-slate-500">{day.sessions} sessions</p>
               </div>
-              <div className="flex gap-2">
-                <AppButton onClick={saveZoneAnnouncement} type="button">{editingAnnouncementId ? "Save changes" : "Publish update"}</AppButton>
-                {editingAnnouncementId ? <AppButton onClick={() => { setEditingAnnouncementId(null); setAnnouncementTitle(""); setAnnouncementMessage(""); setAnnouncementMediaUrl(""); }} type="button" variant="ghost">Cancel</AppButton> : null}
-              </div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-            <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Published Updates</p>
-            <div className="mt-4 space-y-3">
-              {zoneAnnouncements.length ? zoneAnnouncements.map((announcement) => (
-                <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={announcement.id}>
-                  <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
-                    <div>
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge tone={announcement.type === "maintenance" ? "warning" : announcement.type === "offer" ? "success" : "active"}>{announcement.type}</StatusBadge>
-                        <StatusBadge tone="neutral">{announcement.visibility}</StatusBadge>
-                      </div>
-                      <h4 className="mt-3 font-semibold text-white">{announcement.title}</h4>
-                      <p className="mt-2 text-sm leading-6 text-slate-400">{announcement.message}</p>
-                      {announcement.mediaUrl ? <a className="mt-3 inline-flex text-xs font-semibold text-cyan-100 hover:text-white" href={announcement.mediaUrl} rel="noreferrer" target="_blank">View media</a> : null}
-                      <p className="mt-3 text-xs text-slate-600">{new Date(announcement.createdAt).toLocaleString()}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <AppButton onClick={() => editZoneAnnouncement(announcement)} type="button" variant="ghost">Edit</AppButton>
-                      <AppButton onClick={() => deleteZoneAnnouncement(announcement.id)} type="button" variant="danger">Delete</AppButton>
-                    </div>
-                  </div>
-                </article>
-              )) : <EmptyState title="No announcements yet" description="Create offers, maintenance notices, and event updates for your players." />}
-            </div>
+            ))}
           </div>
         </section>
-        </ZoneUpdates>
-      );
-    }
+        <SettlementTable settlements={ownerSettlements} />
+      </div>
+    );
 
-    if (activeView === "Payout Requests") {
-      return (
-        <div className="space-y-5">
-          {renderStaffPanel()}
-          <WalletCard onBuySpica={handleBuySpica} onPlayerChange={setSelectedPlayerId} onRequestWithdrawal={handleRequestWithdrawal} players={players} selectedPlayerId={selectedPlayerId} showWithdrawal />
-          <WithdrawalTable withdrawals={withdrawals.filter((withdrawal) => withdrawal.type === "Owner")} />
+    const updatesPanel = (
+      <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Zone Updates</p>
+          <h3 className="mt-2 text-xl font-semibold text-white">{editingAnnouncementId ? "Edit announcement" : "Create announcement"}</h3>
+          <div className="mt-5 space-y-3">
+            <input className="app-input w-full" onChange={(event) => setAnnouncementTitle(event.target.value)} placeholder="Title" value={announcementTitle} />
+            <textarea className="app-input min-h-28 w-full resize-none" onChange={(event) => setAnnouncementMessage(event.target.value)} placeholder="Message for players" value={announcementMessage} />
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 transition hover:border-cyan-200/30">
+              <span>
+                <span className="block text-sm font-semibold text-white">Announcement media</span>
+                <span className="mt-1 block text-xs text-slate-500">{uploadingMedia === "announcement-media" ? "Uploading..." : announcementMediaUrl ? "Media attached" : "Attach image or PDF"}</span>
+              </span>
+              <UploadCloud className="h-4 w-4 text-cyan-100" />
+              <input
+                accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                className="sr-only"
+                disabled={uploadingMedia === "announcement-media"}
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const result = await uploadMedia(file, "announcement-media", { zoneId: ownerZone.id });
+                  if (result?.publicUrl) setAnnouncementMediaUrl(result.publicUrl);
+                  event.target.value = "";
+                }}
+                type="file"
+              />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select className="app-input" onChange={(event) => setAnnouncementType(event.target.value as ZoneAnnouncement["type"])} value={announcementType}>
+                <option value="general">General</option>
+                <option value="event">Event</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="offer">Offer</option>
+              </select>
+              <select className="app-input" onChange={(event) => setAnnouncementVisibility(event.target.value as ZoneAnnouncement["visibility"])} value={announcementVisibility}>
+                <option value="public">Public</option>
+                <option value="followers">Followers</option>
+                <option value="customers">Customers</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <AppButton onClick={saveZoneAnnouncement} type="button">{editingAnnouncementId ? "Save changes" : "Publish update"}</AppButton>
+              {editingAnnouncementId ? <AppButton onClick={() => { setEditingAnnouncementId(null); setAnnouncementTitle(""); setAnnouncementMessage(""); setAnnouncementMediaUrl(""); }} type="button" variant="ghost">Cancel</AppButton> : null}
+            </div>
+          </div>
         </div>
-      );
-    }
+        <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Published Updates</p>
+          <div className="mt-4 space-y-3">
+            {zoneAnnouncements.length ? zoneAnnouncements.map((announcement) => (
+              <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={announcement.id}>
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge tone={announcement.type === "maintenance" ? "warning" : announcement.type === "offer" ? "success" : "active"}>{announcement.type}</StatusBadge>
+                      <StatusBadge tone="neutral">{announcement.visibility}</StatusBadge>
+                    </div>
+                    <h4 className="mt-3 font-semibold text-white">{announcement.title}</h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{announcement.message}</p>
+                    {announcement.mediaUrl ? <a className="mt-3 inline-flex text-xs font-semibold text-cyan-100 hover:text-white" href={announcement.mediaUrl} rel="noreferrer" target="_blank">View media</a> : null}
+                    <p className="mt-3 text-xs text-slate-600">{new Date(announcement.createdAt).toLocaleString()}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <AppButton onClick={() => editZoneAnnouncement(announcement)} type="button" variant="ghost">Edit</AppButton>
+                    <AppButton onClick={() => deleteZoneAnnouncement(announcement.id)} type="button" variant="danger">Delete</AppButton>
+                  </div>
+                </div>
+              </article>
+            )) : <EmptyState title="No announcements yet" description="Create offers, maintenance notices, and event updates for your players." />}
+          </div>
+        </div>
+      </section>
+    );
 
-    return (
+    const payoutsPanel = (
+      <div className="space-y-5">
+        {renderStaffPanel()}
+        <WalletCard onBuySpica={handleBuySpica} onPlayerChange={setSelectedPlayerId} onRequestWithdrawal={handleRequestWithdrawal} players={players} selectedPlayerId={selectedPlayerId} showWithdrawal />
+        <WithdrawalTable withdrawals={withdrawals.filter((withdrawal) => withdrawal.type === "Owner")} />
+      </div>
+    );
+
+    const homePanel = (
       <div className="space-y-6">
         {renderZoneOperatorStartPanel()}
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
@@ -2169,6 +2133,19 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
         {renderZoneSessionHistoryPanel()}
         <SettlementTable settlements={ownerSettlements} />
       </div>
+    );
+
+    return (
+      <ZoneDashboard
+        activeView={activeView}
+        customers={renderZoneCustomersPanel()}
+        home={homePanel}
+        payouts={payoutsPanel}
+        pcs={pcsPanel}
+        sessions={renderZoneSessionHistoryPanel()}
+        settlements={settlementsPanel}
+        updates={updatesPanel}
+      />
     );
   }
 
@@ -2424,146 +2401,101 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
       );
     }
 
-    if (activeView === "All Zones" || activeView === "Zones") {
-      return <AdminZones><div className="space-y-5">{renderPendingZoneApprovals()}{renderAdminZoneTable()}</div></AdminZones>;
-    }
+    const filteredPlayers = players.filter((player) =>
+      [player.name, player.email ?? "", player.username ?? ""].some((value) => value.toLowerCase().includes(adminSearch.toLowerCase()))
+    );
 
-    if (activeView === "All Players" || activeView === "Players") {
-      const filteredPlayers = players.filter((player) =>
-        [player.name, player.email ?? "", player.username ?? ""].some((value) => value.toLowerCase().includes(adminSearch.toLowerCase()))
-      );
-      return (
-        <AdminPlayers>
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] shadow-nebula">
-          <div className="flex flex-col justify-between gap-3 border-b border-white/10 px-5 py-4 md:flex-row md:items-center">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Players</p>
-              <h3 className="mt-2 text-lg font-semibold text-white">Global player accounts</h3>
-            </div>
-            <input className="app-input py-2" onChange={(event) => setAdminSearch(event.target.value)} placeholder="Search players..." value={adminSearch} />
+    const playersPanel = (
+      <section className="rounded-2xl border border-white/10 bg-white/[0.055] shadow-nebula">
+        <div className="flex flex-col justify-between gap-3 border-b border-white/10 px-5 py-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Players</p>
+            <h3 className="mt-2 text-lg font-semibold text-white">Global player accounts</h3>
           </div>
-          {filteredPlayers.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-sm">
-                <thead className="bg-white/[0.04] text-xs uppercase tracking-[0.16em] text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Player</th>
-                    <th className="px-4 py-3">Balance</th>
-                    <th className="px-4 py-3">SPICA spent</th>
-                    <th className="px-4 py-3">Sessions</th>
-                    <th className="px-4 py-3">Level</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/10">
-                  {filteredPlayers.map((player) => {
-                    const playerRows = sessions.filter((session) => session.playerId === player.id);
-                    const spent = playerRows.reduce((sum, session) => sum + session.grossSpica, 0);
-                    return (
-                      <tr className="text-slate-300" key={player.id}>
-                        <td className="px-4 py-3"><p className="font-semibold text-white">{player.name}</p><p className="text-xs text-slate-500">{player.email}</p></td>
-                        <td className="px-4 py-3 text-cyan-100">{formatSpica(player.balance)}</td>
-                        <td className="px-4 py-3 text-purple-100">{formatSpica(spent)}</td>
-                        <td className="px-4 py-3">{playerRows.length}</td>
-                        <td className="px-4 py-3">Level {player.level ?? 1}</td>
-                        <td className="px-4 py-3"><StatusBadge tone={player.onlineStatus === "online" ? "success" : "neutral"}>{player.onlineStatus ?? "active"}</StatusBadge></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : <div className="p-5"><EmptyState title="No players found" description="Global player accounts will appear here after signup." /></div>}
-        </section>
-        </AdminPlayers>
-      );
-    }
-
-    if (activeView === "Commissions") {
-      return (
-        <div className="space-y-5">
-          <div className="grid gap-5 md:grid-cols-3">
-            <StatCard detail="Completed session fee capture" icon={ShieldCheck} title="Commission Earned" tone="green" value={formatSpica(commissionEarned)} />
-            <StatCard detail="Mock credit purchases" icon={Coins} title="Credits Sold" value={formatSpica(creditsSold)} />
-            <StatCard detail="All session volume" icon={BarChart3} title="Total Spend" tone="purple" value={formatSpica(totalSpent)} />
-          </div>
-          <SettlementTable settlements={settlements} />
+          <input className="app-input py-2" onChange={(event) => setAdminSearch(event.target.value)} placeholder="Search players..." value={adminSearch} />
         </div>
-      );
-    }
+        {filteredPlayers.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-white/[0.04] text-xs uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Player</th>
+                  <th className="px-4 py-3">Balance</th>
+                  <th className="px-4 py-3">SPICA spent</th>
+                  <th className="px-4 py-3">Sessions</th>
+                  <th className="px-4 py-3">Level</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {filteredPlayers.map((player) => {
+                  const playerRows = sessions.filter((session) => session.playerId === player.id);
+                  const spent = playerRows.reduce((sum, session) => sum + session.grossSpica, 0);
+                  return (
+                    <tr className="text-slate-300" key={player.id}>
+                      <td className="px-4 py-3"><p className="font-semibold text-white">{player.name}</p><p className="text-xs text-slate-500">{player.email}</p></td>
+                      <td className="px-4 py-3 text-cyan-100">{formatSpica(player.balance)}</td>
+                      <td className="px-4 py-3 text-purple-100">{formatSpica(spent)}</td>
+                      <td className="px-4 py-3">{playerRows.length}</td>
+                      <td className="px-4 py-3">Level {player.level ?? 1}</td>
+                      <td className="px-4 py-3"><StatusBadge tone={player.onlineStatus === "online" ? "success" : "neutral"}>{player.onlineStatus ?? "active"}</StatusBadge></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : <div className="p-5"><EmptyState title="No players found" description="Global player accounts will appear here after signup." /></div>}
+      </section>
+    );
 
-    if (activeView === "Sessions") {
-      return <div className="space-y-5">{renderEcosystemSessionSummary()}</div>;
-    }
+    const commissionsPanel = (
+      <div className="space-y-5">
+        <div className="grid gap-5 md:grid-cols-3">
+          <StatCard detail="Completed session fee capture" icon={ShieldCheck} title="Commission Earned" tone="green" value={formatSpica(commissionEarned)} />
+          <StatCard detail="Mock credit purchases" icon={Coins} title="Credits Sold" value={formatSpica(creditsSold)} />
+          <StatCard detail="All session volume" icon={BarChart3} title="Total Spend" tone="purple" value={formatSpica(totalSpent)} />
+        </div>
+        <SettlementTable settlements={settlements} />
+      </div>
+    );
 
-    if (activeView === "Withdrawal Approvals") {
-      return renderApprovalTable();
-    }
+    const simplePage = (
+      <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+        <p className="text-xs uppercase tracking-[0.18em] text-purple-200">
+          {activeView === "Moderation" ? "Trust & Safety" : activeView === "Support" ? "Support Desk" : activeView === "Announcements" ? "Platform Announcements" : "Ecosystem Events"}
+        </p>
+        <h3 className="mt-3 text-xl font-semibold text-white">
+          {activeView === "Moderation" ? "Moderation Queue" : activeView === "Support" ? "Operator & Player Support" : activeView === "Announcements" ? "Ezzstar Updates" : "Tournament Control"}
+        </h3>
+        <EmptyState
+          title={activeView === "Moderation" ? "No moderation items" : activeView === "Support" ? "No support tickets" : activeView === "Announcements" ? "No announcements published" : "No tournaments scheduled"}
+          description={activeView === "Moderation"
+            ? "Suspicious activity, player reports, and zone review flags will appear here."
+            : activeView === "Support"
+              ? "Zone owner requests, player billing questions, and technical support cases will be handled here."
+              : activeView === "Announcements"
+                ? "Publish ecosystem updates, maintenance notices, offers, and event announcements from this workspace."
+                : "Create and manage platform tournaments here when the competitive layer is enabled."}
+        />
+      </section>
+    );
 
-    if (activeView === "Settlement Approvals" || activeView === "Settlements") {
-      return <AdminSettlements><div className="space-y-5">{renderAdminSettlementControl()}{renderSettlementApprovals()}</div></AdminSettlements>;
-    }
-
-    if (activeView === "Tournaments") {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-          <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Ecosystem Events</p>
-          <h3 className="mt-3 text-xl font-semibold text-white">Tournament Control</h3>
-          <EmptyState title="No tournaments scheduled" description="Create and manage platform tournaments here when the competitive layer is enabled." />
-        </section>
-      );
-    }
-
-    if (activeView === "Announcements") {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-          <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Platform Announcements</p>
-          <h3 className="mt-3 text-xl font-semibold text-white">Ezzstar Updates</h3>
-          <EmptyState title="No announcements published" description="Publish ecosystem updates, maintenance notices, offers, and event announcements from this workspace." />
-        </section>
-      );
-    }
-
-    if (activeView === "Moderation") {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-          <p className="text-xs uppercase tracking-[0.18em] text-red-200">Trust & Safety</p>
-          <h3 className="mt-3 text-xl font-semibold text-white">Moderation Queue</h3>
-          <EmptyState title="No moderation items" description="Suspicious activity, player reports, and zone review flags will appear here." />
-        </section>
-      );
-    }
-
-    if (activeView === "Support") {
-      return (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-          <p className="text-xs uppercase tracking-[0.18em] text-emerald-200">Support Desk</p>
-          <h3 className="mt-3 text-xl font-semibold text-white">Operator & Player Support</h3>
-          <EmptyState title="No support tickets" description="Zone owner requests, player billing questions, and technical support cases will be handled here." />
-        </section>
-      );
-    }
-
-    if (activeView === "System Analytics" || activeView === "System Health") {
-      return (
-        <AdminSystemHealth>
+    const systemHealthPanel = (
       <div className="space-y-5">
         {renderPendingZoneApprovals()}
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
-            <StatCard detail="Active operators" icon={Landmark} title="Active Zones" value={String(activeZones)} />
-            <StatCard detail="Current live sessions" icon={Activity} title="Live Sessions" tone="purple" value={String(activeSessions.length)} />
-            <StatCard detail="Approval queue volume" icon={Banknote} title="Pending Settlements" tone="red" value={String(pendingSettlements.length)} />
-            <StatCard detail="Graph-ready daily volume" icon={BarChart3} title="SPICA Volume" tone="green" value={formatSpica(totalSpent)} />
-          </div>
-          {renderSafetyPanel()}
-          {renderEcosystemSessionSummary()}
+          <StatCard detail="Active operators" icon={Landmark} title="Active Zones" value={String(activeZones)} />
+          <StatCard detail="Current live sessions" icon={Activity} title="Live Sessions" tone="purple" value={String(activeSessions.length)} />
+          <StatCard detail="Approval queue volume" icon={Banknote} title="Pending Settlements" tone="red" value={String(pendingSettlements.length)} />
+          <StatCard detail="Graph-ready daily volume" icon={BarChart3} title="SPICA Volume" tone="green" value={formatSpica(totalSpent)} />
         </div>
-        </AdminSystemHealth>
-      );
-    }
+        {renderSafetyPanel()}
+        {renderEcosystemSessionSummary()}
+      </div>
+    );
 
-    return (
-      <AdminHome>
+    const homePanel = (
       <div className="space-y-6">
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
           <StatCard detail={`${zones.filter((zone) => zone.status === "Pending").length} pending review`} icon={Landmark} title="Total Zones" value={String(zones.length)} />
@@ -2596,7 +2528,22 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
         {renderEcosystemSessionSummary()}
         {renderSafetyPanel()}
       </div>
-      </AdminHome>
+    );
+
+    return (
+      <AdminDashboard
+        activeView={activeView}
+        commissions={commissionsPanel}
+        home={homePanel}
+        players={playersPanel}
+        requests={renderPendingZoneApprovals()}
+        sessions={<div className="space-y-5">{renderEcosystemSessionSummary()}</div>}
+        settlements={<div className="space-y-5">{renderAdminSettlementControl()}{renderSettlementApprovals()}</div>}
+        simplePage={simplePage}
+        systemHealth={systemHealthPanel}
+        withdrawals={renderApprovalTable()}
+        zones={<div className="space-y-5">{renderPendingZoneApprovals()}{renderAdminZoneTable()}</div>}
+      />
     );
   }
 
@@ -2686,9 +2633,9 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
   }
 
   const pageSubcopy: Record<DashboardRole, string> = {
-    player: "Your balance, sessions, zones, rewards, and player activity in one connected SPICA account.",
-    zone: "Operate PCs, live sessions, customers, earnings, and zone announcements from one owner console.",
-    admin: "Monitor zones, players, settlements, requests, system health, and SPICA network activity."
+    player: "Your mobile-first Ezzstar identity app for SPICA balance, live sessions, and play history.",
+    zone: "Installed operator software for paired PCs, player sessions, local settings, and settlements.",
+    admin: "Ezzstar web control center for public onboarding, zones, players, approvals, and ecosystem health."
   };
 
   async function logoutToLogin() {

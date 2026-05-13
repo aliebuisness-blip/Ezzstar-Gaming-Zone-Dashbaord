@@ -30,17 +30,17 @@ const profileRoute: Record<AuthUser["role"], string> = {
 function dashboardLinks(role: AuthUser["role"]) {
   if (role === "admin") {
     return [
-      { label: "Admin Dashboard", href: "/admin" },
-      { label: "Zone Dashboard", href: "/zone" },
-      { label: "Player Dashboard", href: "/player" }
+      { label: "Ezzstar Control Center", href: "/admin" },
+      { label: "SPICA Zone OS", href: "/zone" },
+      { label: "SPICA Player App", href: "/player" }
     ];
   }
 
   if (role === "zone_owner" || role === "manager") {
-    return [{ label: "Zone Dashboard", href: "/zone" }];
+    return [{ label: "SPICA Zone OS", href: "/zone" }];
   }
 
-  return [{ label: "Player Dashboard", href: "/player" }];
+  return [{ label: "SPICA Player App", href: "/player" }];
 }
 
 function initials(user?: AuthUser | null) {
@@ -154,7 +154,7 @@ export function AccountMenu() {
               My Profile
             </Link>
 
-            <div className="px-3 pt-3 text-xs uppercase tracking-[0.18em] text-slate-600">Switch Dashboard</div>
+            <div className="px-3 pt-3 text-xs uppercase tracking-[0.18em] text-slate-600">Switch Surface</div>
             {links.map((item) => (
               <Link className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-slate-300 transition hover:bg-white/[0.065] hover:text-white" href={item.href} key={item.href} role="menuitem">
                 <LayoutDashboard className="h-4 w-4 text-purple-200" />

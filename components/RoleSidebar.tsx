@@ -60,36 +60,31 @@ export type RoleNavKey =
 
 const roleMeta = {
   player: {
-    eyebrow: "Player",
-    title: "Arena Wallet",
+    eyebrow: "SPICA Player App",
+    title: "Player Companion",
     href: "/player",
     nav: [
       { label: "Home", href: "/player", icon: Gauge },
       { label: "Wallet", href: "/player/wallet", icon: WalletCards },
-      { label: "Activity", href: "/player/activity", icon: Timer },
-      { label: "Zones", href: "/player/zones", icon: Landmark },
-      { label: "Tournaments", href: "/player/tournaments", icon: Trophy },
-      { label: "Updates", href: "/player/updates", icon: Activity },
+      { label: "Sessions", href: "/player/sessions", icon: Timer },
       { label: "Profile", href: "/player/profile", icon: UserRound }
     ]
   },
   zone: {
-    eyebrow: "Owner",
-    title: "Zone Console",
+    eyebrow: "SPICA Zone OS",
+    title: "Operator Console",
     href: "/zone",
     nav: [
       { label: "Home", href: "/zone", icon: Gauge },
       { label: "PCs", href: "/zone/pcs", icon: Monitor },
-      { label: "Customers", href: "/zone/customers", icon: Users },
       { label: "Sessions", href: "/zone/sessions", icon: Activity },
-      { label: "Earnings", href: "/zone/earnings", icon: Coins },
-      { label: "Updates", href: "/zone/updates", icon: Sparkles },
+      { label: "Settlements", href: "/zone/settlements", icon: Coins },
       { label: "Settings", href: "/zone/settings", icon: Settings }
     ]
   },
   admin: {
-    eyebrow: "Ezzstar",
-    title: "Admin Core",
+    eyebrow: "Ezzstar Web App",
+    title: "Control Center",
     href: "/admin",
     nav: [
       { label: "Home", href: "/admin", icon: Gauge },
@@ -131,7 +126,7 @@ export function RoleSidebar({ role, activeView, onViewChange }: RoleSidebarProps
         </div>
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{meta.eyebrow} Dashboard</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{meta.eyebrow}</p>
           <h2 className="mt-2 text-xl font-semibold text-white">{meta.title}</h2>
         </div>
 
