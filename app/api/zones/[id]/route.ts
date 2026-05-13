@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Prisma, UserRole, ZoneStatus } from "@prisma/client";
+import { ListingRequestStatus, Prisma, UserRole, ZoneStatus } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
 import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
@@ -41,6 +41,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ...adminOnly
       }
     });
+
+    const pricing = zone.pricing as { listingRequestId?: string } | null;
+    if (auth.role === UserRole.admin && input.status && pricing?.listingRequestId) {
+      await prisma.zoneListingRequest.updateMany({
+        where: { id: pricing.listingRequestId },
+        data: {
+          status:
+            input.status === ZoneStatus.active
+              ? ListingRequestStatus.approved
+              : input.status === ZoneStatus.rejected
+                ? ListingRequestStatus.rejected
+                : ListingRequestStatus.contacted
+        }
+      });
+    }
 
     await audit("update_zone", auth.id, { zoneId: id, status: updated.status, featured: updated.featured });
     return jsonOk({ zone: updated });

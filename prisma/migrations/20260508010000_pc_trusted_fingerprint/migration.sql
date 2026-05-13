@@ -1,0 +1,1 @@
+ALTER TABLE "PC" ADD COLUMN IF NOT EXISTS "trustedFingerprint" TEXT;

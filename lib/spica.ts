@@ -71,6 +71,25 @@ export type Zone = {
   name: string;
   city: string;
   status: ZoneStatus;
+  owner?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  pricing?: {
+    pcCount?: number;
+    rentPerHour?: number;
+    currentPricingModel?: string;
+    listingRequestId?: string;
+    phone?: string;
+    submittedMessage?: string;
+    [key: string]: unknown;
+  };
+  branding?: {
+    logoUrl?: string;
+    bannerUrl?: string;
+    [key: string]: unknown;
+  };
   pcs: GamingPc[];
 };
 
@@ -133,6 +152,7 @@ export type ActivityItem = {
 };
 
 export type SpicaMockState = {
+  currentUser: Player | null;
   zones: Zone[];
   players: Player[];
   sessions: Session[];
@@ -144,91 +164,17 @@ export type SpicaMockState = {
   debug: RealtimeDebugState;
 };
 
-export function createMockZones(): Zone[] {
-  return [
-    {
-      id: "zone-a",
-      name: "Galaxy Gaming Arena",
-      city: "Lahore",
-      status: "Active",
-      pcs: [
-        {
-          id: "pc-01",
-          name: "PC-01",
-          type: "Standard",
-          category: "standard",
-          ratePerHour: 100,
-          sessionId: null,
-          status: "offline"
-        }
-      ]
-    }
-  ];
-}
-
-export function createMockPlayers(): Player[] {
-  return [
-    {
-      id: "player-1",
-      name: "Ayan Malik",
-      username: "ayan",
-      avatar: "/avatars/player.svg",
-      banner: "/banners/nebula.svg",
-      bio: "Cross-zone SPICA player. FPS nights, racing weekends.",
-      email: "player@spica.local",
-      membership: "Founding Player",
-      favoriteGames: ["Valorant", "Tekken 8", "Forza Horizon"],
-      favoriteZones: ["zone-a"],
-      xp: 450,
-      level: 2,
-      onlineStatus: "online",
-      balance: 10000
-    }
-  ];
-}
-
-export function createMockSpicaState(): SpicaMockState {
-  const now = Date.now();
-  const zones = createMockZones();
-  const players = createMockPlayers();
-
-  const activeSessions: Session[] = [];
-
-  const hydratedZones = zones.map((zone) => ({
-    ...zone,
-    pcs: zone.pcs.map((pc) => {
-      const session = activeSessions.find((item) => item.zoneId === zone.id && item.pcId === pc.id);
-      return session ? { ...pc, sessionId: session.id } : pc;
-    })
-  }));
-
-  const settlements: Settlement[] = [];
-
+export function createEmptySpicaState(): SpicaMockState {
   return {
-    zones: hydratedZones,
-    players,
-    sessions: activeSessions,
-    transactions: [
-      {
-        id: "TRX-7001",
-        type: "credit_purchase",
-        actorId: "player-1",
-        actorName: "Ayan Malik",
-        amount: 10000,
-        createdAt: now - 90 * 60 * 1000
-      }
-    ],
-    settlements,
+    currentUser: null,
+    zones: [],
+    players: [],
+    sessions: [],
+    transactions: [],
+    settlements: [],
     withdrawals: [],
-    activity: [
-      {
-        id: "ACT-5001",
-        label: "Demo ready",
-        detail: "PC-01 is waiting for the Electron client heartbeat.",
-        createdAt: now
-      }
-    ],
-    creditsSold: 10000,
+    activity: [],
+    creditsSold: 0,
     debug: {
       connectedSockets: 0,
       dashboardSockets: 0,

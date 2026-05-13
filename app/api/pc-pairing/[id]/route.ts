@@ -31,6 +31,14 @@ async function uniquePcId(baseId: string) {
   return pcId;
 }
 
+async function resolveApprovalPcId(baseId: string, assignedPcId?: string | null) {
+  if (assignedPcId) {
+    return assignedPcId;
+  }
+
+  return uniquePcId(baseId);
+}
+
 async function resolveZone(auth: { id: string; role: UserRole }, requestedZoneId?: string | null) {
   if (auth.role === UserRole.admin && requestedZoneId) {
     const zone = await prisma.zone.findUnique({ where: { id: requestedZoneId } });
@@ -68,7 +76,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       throw new Error("Pairing request not found");
     }
 
-    if (pairingRequest.status !== "pending") {
+    if (pairingRequest.status !== "pending" && pairingRequest.status !== "approved") {
       throw new Error(`Pairing request is already ${pairingRequest.status}`);
     }
 
@@ -81,6 +89,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         where: { id: pairingRequest.id },
         data: { status: "rejected", rejectedReason: input.reason ?? "Rejected by zone operator" }
       });
+      console.log(`Pairing request rejected: ${rejected.id}`);
       await audit("pc_pairing_rejected", auth.id, { pairingRequestId: rejected.id });
       return jsonOk({ pairingRequest: rejected });
     }
@@ -91,12 +100,24 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
     const zone = await resolveZone(auth, pairingRequest.zoneId ?? input.zoneId);
     const pcName = input.pcName ?? pairingRequest.requestedPcName ?? pairingRequest.machineName;
-    const pcId = await uniquePcId(slugPcId(pcName));
-    const authToken = `pc-token-${zone.id}-${pcId}-${crypto.randomBytes(12).toString("hex")}`;
+    const pcId = await resolveApprovalPcId(slugPcId(pcName), pairingRequest.assignedPcId);
+    const authToken = pairingRequest.assignedToken ?? `pc-token-${zone.id}-${pcId}-${crypto.randomBytes(12).toString("hex")}`;
 
     const result = await prisma.$transaction(async (tx) => {
-      const pc = await tx.pC.create({
-        data: {
+      const pc = await tx.pC.upsert({
+        where: { id: pcId },
+        update: {
+          name: pcName,
+          zoneId: zone.id,
+          authToken,
+          status: PCStatus.offline,
+          category: input.category,
+          ratePerHour: input.ratePerHour,
+          machineName: pairingRequest.machineName,
+          ipAddress: pairingRequest.ipAddress,
+          trustedFingerprint: pairingRequest.fingerprint
+        },
+        create: {
           id: pcId,
           name: pcName,
           zoneId: zone.id,
@@ -106,16 +127,26 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           ratePerHour: input.ratePerHour,
           machineName: pairingRequest.machineName,
           ipAddress: pairingRequest.ipAddress,
-          client: {
-            create: {
-              authToken,
-              installedVersion: pairingRequest.installedVersion,
-              trustedFingerprint: pairingRequest.fingerprint,
-              pairedAt: new Date()
-            }
-          }
+          trustedFingerprint: pairingRequest.fingerprint
         },
-        include: { client: true, zone: true }
+        include: { zone: true }
+      });
+
+      const client = await tx.pCClient.upsert({
+        where: { pcId: pc.id },
+        update: {
+          authToken,
+          installedVersion: pairingRequest.installedVersion,
+          trustedFingerprint: pairingRequest.fingerprint,
+          pairedAt: new Date()
+        },
+        create: {
+          pcId: pc.id,
+          authToken,
+          installedVersion: pairingRequest.installedVersion,
+          trustedFingerprint: pairingRequest.fingerprint,
+          pairedAt: new Date()
+        }
       });
 
       const approved = await tx.pCPairingRequest.update({
@@ -131,9 +162,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         }
       });
 
-      return { pc, pairingRequest: approved };
+      return { pc: { ...pc, client }, pairingRequest: approved };
     });
 
+    console.log(`Pairing request approved: ${result.pairingRequest.id} -> ${result.pc.id}`);
+    console.log("Approved PC ID:", result.pc.id);
+    console.log("Saved zoneId:", zone.id);
+    console.log("Saved fingerprint:", pairingRequest.fingerprint);
+    console.log("Final config returned to client:", {
+      pcId: result.pc.id,
+      zoneId: zone.id,
+      authToken: "[redacted]",
+      trustedFingerprint: pairingRequest.fingerprint
+    });
     await audit("pc_pairing_approved", auth.id, {
       pairingRequestId: result.pairingRequest.id,
       pcId: result.pc.id,

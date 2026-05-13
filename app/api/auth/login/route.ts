@@ -13,7 +13,8 @@ export async function POST(request: Request) {
   try {
     await ensureDatabaseConnection();
     const input = LoginSchema.parse(await request.json());
-    const user = await prisma.user.findUnique({ where: { email: input.email } });
+    const normalizedEmail = input.email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user || !(await verifyPassword(input.password, user.password))) {
       return Response.json({ error: "Invalid email or password" }, { status: 401 });

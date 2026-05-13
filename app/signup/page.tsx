@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthShell } from "@/components/AuthShell";
 
@@ -17,6 +18,18 @@ export default function SignupPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (cleanUsername.length < 3) {
+      setError("Username must be at least 3 characters.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
@@ -26,14 +39,17 @@ export default function SignupPage() {
     setLoading(true);
     const response = await fetch("/api/auth/signup", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: username, username, email, password, role: "player", phone })
+      body: JSON.stringify({ name: cleanUsername, username: cleanUsername, email: cleanEmail, password, role: "player", phone: phone.trim() || undefined })
     });
-    const payload = await response.json();
+    const payload = await response.json().catch(() => ({}));
     setLoading(false);
 
     if (!response.ok) {
-      setError(payload.error ?? "Could not create account");
+      const fieldErrors = payload.details?.fieldErrors;
+      const firstFieldError = fieldErrors ? Object.values(fieldErrors).flat().find(Boolean) : null;
+      setError(String(firstFieldError ?? payload.error ?? "Could not create account"));
       return;
     }
 
@@ -42,6 +58,9 @@ export default function SignupPage() {
 
   return (
     <AuthShell eyebrow="Player network" title="Create your SPICA identity." description="A single player account works across connected Ezzstar gaming zones. Zone owner onboarding is handled through listing requests.">
+      <Link className="inline-flex text-sm font-medium text-slate-400 transition hover:text-cyan-100" href="/login">
+        Back to sign in
+      </Link>
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">PLAYER SIGNUP</p>
       <h1 className="mt-3 text-3xl font-semibold text-white">Create account</h1>
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
@@ -55,6 +74,14 @@ export default function SignupPage() {
           {loading ? "Setting up your dashboard..." : "Create player account"}
         </button>
       </form>
+      <div className="mt-5 flex flex-col gap-2 text-sm text-slate-400">
+        <Link className="text-cyan-100 transition hover:text-white" href="/login">
+          Already have an account? Sign in
+        </Link>
+        <Link className="text-purple-100 transition hover:text-white" href="/list-your-zone">
+          Want to list your gaming zone? Contact us
+        </Link>
+      </div>
     </AuthShell>
   );
 }

@@ -1,17 +1,21 @@
 import dgram from "node:dgram";
-import { createDiscoveryManifest, DISCOVERY_PORT, DISCOVERY_QUERY } from "../lib/local-network";
+import { createDiscoveryManifest, DISCOVERY_PORT, DISCOVERY_QUERY, selectReachableHostIp } from "../lib/local-network";
 
 export function startDiscoveryService(realtimePort: number) {
   const socket = dgram.createSocket("udp4");
-  const manifest = createDiscoveryManifest(realtimePort);
 
   socket.on("message", (message, remote) => {
     if (message.toString().trim() !== DISCOVERY_QUERY) {
       return;
     }
 
+    const selection = selectReachableHostIp(remote.address);
+    const manifest = createDiscoveryManifest(realtimePort, selection.hostIp);
     const response = Buffer.from(JSON.stringify(manifest));
     socket.send(response, remote.port, remote.address);
+    console.log(`Client discovery request from: ${remote.address}`);
+    console.log(`Selected reachable host IP: ${selection.hostIp} (${selection.source})`);
+    console.log("Ignored adapters:", selection.ignoredAdapters);
     console.log(`Discovery response sent to ${remote.address}:${remote.port}`);
   });
 
@@ -21,8 +25,11 @@ export function startDiscoveryService(realtimePort: number) {
 
   socket.bind(DISCOVERY_PORT, () => {
     socket.setBroadcast(true);
+    const selection = selectReachableHostIp();
+    const manifest = createDiscoveryManifest(realtimePort, selection.hostIp);
     console.log(`SPICA discovery service running on UDP ${DISCOVERY_PORT}`);
     console.log(`Zone Host advertised as ${manifest.hostName} (${manifest.hostIp}:${realtimePort})`);
+    console.log("Ignored adapters:", selection.ignoredAdapters);
   });
 
   return () => socket.close();

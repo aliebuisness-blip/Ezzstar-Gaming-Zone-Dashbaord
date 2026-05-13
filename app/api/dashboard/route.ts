@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { TransactionType } from "@prisma/client";
+import { TransactionType, UserRole, ZoneStatus } from "@prisma/client";
 import { jsonError, jsonOk } from "@/lib/api";
 import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
 import { requireApiUser } from "@/lib/server-auth";
@@ -11,14 +11,57 @@ export async function GET(request: NextRequest) {
     const auth = await requireApiUser(request);
     await expireSessions();
 
-    const [user, users, zones, sessions, transactions, settlements, withdrawals] = await Promise.all([
-      prisma.user.findUnique({ where: { id: auth.id }, select: { id: true, name: true, username: true, avatar: true, email: true, role: true, spica_balance: true, emailVerified: true, membership: true, favoriteZones: true } }),
-      prisma.user.findMany({ select: { id: true, name: true, username: true, avatar: true, email: true, role: true, spica_balance: true, emailVerified: true, membership: true, favoriteZones: true, createdAt: true } }),
-      prisma.zone.findMany({ include: { pcs: true, owner: { select: { id: true, name: true, email: true } }, sessions: true, settlements: true } }),
-      prisma.session.findMany({ include: { player: true, zone: true, pc: true, settlement: true }, orderBy: { createdAt: "desc" }, take: 50 }),
-      prisma.transaction.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
-      prisma.settlement.findMany({ include: { zone: true, session: { include: { player: true, pc: true } } }, orderBy: { createdAt: "desc" }, take: 50 }),
-      prisma.withdrawal.findMany({ include: { user: true }, orderBy: { createdAt: "desc" }, take: 50 })
+    const userSelect = { id: true, name: true, username: true, avatar: true, banner: true, bio: true, email: true, role: true, spica_balance: true, xp: true, level: true, onlineStatus: true, emailVerified: true, membership: true, favoriteGames: true, favoriteZones: true, createdAt: true };
+    const user = await prisma.user.findUnique({ where: { id: auth.id }, select: userSelect });
+
+    if (!user) {
+      return Response.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    const ownerZoneIds =
+      auth.role === UserRole.zone_owner || auth.role === UserRole.manager
+        ? (
+            await prisma.zone.findMany({
+              where: auth.role === UserRole.manager ? { staff: { some: { id: auth.id } } } : { ownerId: auth.id },
+              select: { id: true }
+            })
+          ).map((zone) => zone.id)
+        : [];
+    const scope =
+      auth.role === UserRole.admin
+        ? {}
+        : auth.role === UserRole.player
+          ? { playerId: auth.id }
+          : { zoneId: { in: ownerZoneIds } };
+    const zoneScope =
+      auth.role === UserRole.admin
+        ? {}
+        : auth.role === UserRole.player
+          ? { status: ZoneStatus.active }
+          : { id: { in: ownerZoneIds } };
+    const transactionScope = auth.role === UserRole.admin ? {} : auth.role === UserRole.player ? { userId: auth.id } : { id: "__zone-owner-no-global-transactions__" };
+    const withdrawalScope = auth.role === UserRole.admin ? {} : { userId: auth.id };
+
+    const [users, zones, sessions, transactions, settlements, withdrawals] = await Promise.all([
+      auth.role === UserRole.admin
+        ? prisma.user.findMany({ select: userSelect, orderBy: { createdAt: "desc" } })
+        : auth.role === UserRole.player
+          ? prisma.user.findMany({ where: { id: auth.id }, select: userSelect })
+          : prisma.user.findMany({
+              where: { OR: [{ id: auth.id }, { sessions: { some: { zoneId: { in: ownerZoneIds } } } }] },
+              select: userSelect,
+              orderBy: { createdAt: "desc" }
+            }),
+      prisma.zone.findMany({ where: zoneScope, include: { pcs: true, owner: { select: { id: true, name: true, email: true } }, _count: { select: { sessions: true, settlements: true } } } }),
+      prisma.session.findMany({ where: scope, include: { player: true, zone: true, pc: true, settlement: true }, orderBy: { createdAt: "desc" }, take: 50 }),
+      prisma.transaction.findMany({ where: transactionScope, orderBy: { createdAt: "desc" }, take: 50 }),
+      prisma.settlement.findMany({
+        where: auth.role === UserRole.admin ? {} : auth.role === UserRole.player ? { session: { playerId: auth.id } } : { zoneId: { in: ownerZoneIds } },
+        include: { zone: true, session: { include: { player: true, pc: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 50
+      }),
+      prisma.withdrawal.findMany({ where: withdrawalScope, include: { user: true }, orderBy: { createdAt: "desc" }, take: 50 })
     ]);
 
     const creditsSold = transactions.filter((item) => item.type === TransactionType.buy).reduce((sum, item) => sum + item.amount, 0);

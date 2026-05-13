@@ -28,11 +28,12 @@ export async function POST(request: Request) {
     });
     await audit("forgot_password", user.id);
 
+    const isDevelopment = process.env.NODE_ENV === "development";
+
     return jsonOk({
       ok: true,
-      resetToken,
-      resetUrl: `/login?resetToken=${resetToken}`,
-      message: "Mock reset token generated for development."
+      ...(isDevelopment ? { resetToken, resetUrl: `/login?resetToken=${resetToken}` } : {}),
+      message: isDevelopment ? "Reset token generated for local development." : "If this account exists, reset instructions were prepared."
     });
   } catch (error) {
     return jsonError(error);

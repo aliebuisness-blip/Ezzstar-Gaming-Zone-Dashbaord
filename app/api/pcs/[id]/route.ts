@@ -4,7 +4,7 @@ import { PCCategory, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
 import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/server-auth";
+import { audit, requireApiUser } from "@/lib/server-auth";
 
 const UpdatePcSchema = z.object({
   name: z.string().min(2).max(32).optional(),
@@ -13,6 +13,34 @@ const UpdatePcSchema = z.object({
   maintenanceMode: z.boolean().optional(),
   regenerateAuthToken: z.boolean().optional()
 });
+
+async function notifyRealtimePcUnpaired(pcId: string) {
+  const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
+  const internalSecret = process.env.REALTIME_INTERNAL_SECRET;
+
+  if (!realtimeUrl || !internalSecret) {
+    return;
+  }
+
+  try {
+    await fetch(`${realtimeUrl.replace(/\/$/, "")}/internal/pc-command`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": internalSecret
+      },
+      body: JSON.stringify({
+        pcId,
+        command: {
+          type: "command:unpaired",
+          reason: "PC removed by zone owner"
+        }
+      })
+    });
+  } catch (error) {
+    console.warn(`Could not notify realtime about removed PC ${pcId}: ${error instanceof Error ? error.message : error}`);
+  }
+}
 
 async function assertPcAccess(pcId: string, userId: string, role: UserRole) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { staffZoneId: true } });
@@ -81,8 +109,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       throw new Error("Cannot delete a PC with an active session");
     }
 
+    await notifyRealtimePcUnpaired(id);
     await prisma.pCClient.deleteMany({ where: { pcId: id } });
     await prisma.pC.delete({ where: { id } });
+    await audit("pc_status", auth.id, { pcId: id, action: "removed", zoneId: pc.zoneId });
 
     return jsonOk({ ok: true });
   } catch (error) {

@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { RawData, WebSocket, WebSocketServer } from "ws";
 import { PCStatus, SessionStatus } from "@prisma/client";
 import { getRealtimePort, validateRuntimeEnv } from "../lib/env";
-import { createDiscoveryManifest } from "../lib/local-network";
+import { createDiscoveryManifest, selectReachableHostIp } from "../lib/local-network";
 import { ensureDatabaseConnection, prisma } from "../lib/prisma";
 import { audit } from "../lib/server-auth";
 import { startDiscoveryService } from "./discovery";
@@ -14,7 +14,8 @@ type PcCommand =
   | "command:end-session"
   | "command:add-time"
   | "command:lock"
-  | "command:show-message";
+  | "command:show-message"
+  | "command:unpaired";
 
 type CommandPayload =
   | { type: PcCommand; session?: unknown; reason?: string; durationSeconds?: number; startTime?: string; serverTime?: string; message?: string; payload?: unknown }
@@ -44,9 +45,13 @@ type HeartbeatPayload = {
 type PairingRequestBody = {
   zoneId?: string;
   machineName?: string;
+  deviceName?: string;
   ipAddress?: string;
+  localIp?: string;
   fingerprint?: string;
+  machineFingerprint?: string;
   installedVersion?: string;
+  clientVersion?: string;
   requestedPcName?: string;
 };
 
@@ -74,6 +79,16 @@ const activeSessionIds = new Map<string, string>();
 const commandLogs: string[] = [];
 let dashboardSocketCount = 0;
 let stopDiscoveryService: (() => void) | null = null;
+
+function redactSensitiveUrl(url: URL) {
+  const safeUrl = new URL(url.toString());
+  safeUrl.searchParams.forEach((_value, key) => {
+    if (/token|auth/i.test(key)) {
+      safeUrl.searchParams.set(key, "[redacted]");
+    }
+  });
+  return `${safeUrl.pathname}${safeUrl.search}`;
+}
 
 function rememberLog(message: string) {
   const line = `${new Date().toISOString()} ${message}`;
@@ -111,10 +126,46 @@ function getRequestIp(request: http.IncomingMessage) {
   return request.socket.remoteAddress?.replace(/^::ffff:/, "");
 }
 
+async function resolvePairingZoneId(requestedZoneId?: string) {
+  if (requestedZoneId) {
+    const requestedZone = await prisma.zone.findUnique({ where: { id: requestedZoneId }, select: { id: true } });
+
+    if (requestedZone) {
+      return requestedZone.id;
+    }
+
+    console.warn(`Pairing request supplied unknown zoneId: ${requestedZoneId}`);
+  }
+
+  const devZone = await prisma.zone.findUnique({ where: { id: "zone-a" }, select: { id: true, status: true } });
+
+  if (devZone) {
+    return devZone.id;
+  }
+
+  const activeZone = await prisma.zone.findFirst({
+    where: { status: "active" },
+    select: { id: true },
+    orderBy: { createdAt: "asc" }
+  });
+
+  return activeZone?.id;
+}
+
 async function handlePairingRequest(body: PairingRequestBody, request: http.IncomingMessage, response: http.ServerResponse) {
   await ensureDatabaseConnection();
 
-  const fingerprint = body.fingerprint?.trim();
+  console.log("Pairing request received");
+  console.log("Request body:", {
+    zoneId: body.zoneId,
+    machineName: body.machineName ?? body.deviceName,
+    ipAddress: body.ipAddress ?? body.localIp,
+    fingerprintPresent: Boolean(body.fingerprint ?? body.machineFingerprint),
+    installedVersion: body.installedVersion ?? body.clientVersion,
+    requestedPcName: body.requestedPcName
+  });
+
+  const fingerprint = (body.fingerprint ?? body.machineFingerprint)?.trim();
 
   if (!fingerprint || fingerprint.length < 8 || fingerprint.length > 200) {
     response.writeHead(400, { "Content-Type": "application/json" });
@@ -122,38 +173,48 @@ async function handlePairingRequest(body: PairingRequestBody, request: http.Inco
     return;
   }
 
-  const machineName = body.machineName?.trim() || "Unidentified PC";
+  const machineName = (body.machineName ?? body.deviceName)?.trim() || "Unidentified PC";
   const pairingCode = crypto.randomBytes(18).toString("hex");
-  const ipAddress = body.ipAddress ?? getRequestIp(request);
+  const ipAddress = body.ipAddress ?? body.localIp ?? getRequestIp(request);
+  const installedVersion = body.installedVersion ?? body.clientVersion;
+  const zoneId = await resolvePairingZoneId(body.zoneId);
 
-  const existingPending = await prisma.pCPairingRequest.findFirst({
-    where: { fingerprint, status: "pending" },
+  console.log(`Pairing zoneId resolved: ${zoneId ?? "unassigned"}`);
+
+  const existingRequest = await prisma.pCPairingRequest.findFirst({
+    where: { fingerprint, status: { in: ["pending", "approved"] } },
     orderBy: { createdAt: "desc" }
   });
 
-  const pairingRequest = existingPending
+  const pairingRequest = existingRequest
     ? await prisma.pCPairingRequest.update({
-        where: { id: existingPending.id },
+        where: { id: existingRequest.id },
         data: {
           machineName,
           ipAddress,
-          installedVersion: body.installedVersion,
+          installedVersion,
           requestedPcName: body.requestedPcName,
-          zoneId: body.zoneId ?? existingPending.zoneId
+          zoneId: zoneId ?? existingRequest.zoneId,
+          status: existingRequest.status
         }
       })
     : await prisma.pCPairingRequest.create({
         data: {
-          zoneId: body.zoneId,
+          zoneId,
           machineName,
           ipAddress,
           fingerprint,
-          installedVersion: body.installedVersion,
+          installedVersion,
           requestedPcName: body.requestedPcName,
           pairingCode
         }
       });
 
+  if (existingRequest) {
+    console.log(`Pairing request already exists id: ${pairingRequest.id} status: ${pairingRequest.status}`);
+  } else {
+    console.log(`Pairing request created id: ${pairingRequest.id}`);
+  }
   console.log(`PC pairing request received: ${pairingRequest.id} (${machineName})`);
   rememberLog(`Pairing request from ${machineName}`);
   await audit("pc_pairing_request", undefined, {
@@ -164,8 +225,11 @@ async function handlePairingRequest(body: PairingRequestBody, request: http.Inco
   });
   emitDashboardEvent("pc:pairing-request", {
     id: pairingRequest.id,
+    zoneId: pairingRequest.zoneId,
     machineName: pairingRequest.machineName,
     ipAddress: pairingRequest.ipAddress,
+    fingerprint: pairingRequest.fingerprint,
+    installedVersion: pairingRequest.installedVersion,
     requestedPcName: pairingRequest.requestedPcName,
     status: pairingRequest.status,
     createdAt: pairingRequest.createdAt.toISOString()
@@ -182,11 +246,12 @@ async function handlePairingRequest(body: PairingRequestBody, request: http.Inco
   }));
 }
 
-async function handlePairingStatus(url: URL, response: http.ServerResponse) {
+async function handlePairingStatus(url: URL, requestMessage: http.IncomingMessage, response: http.ServerResponse) {
   await ensureDatabaseConnection();
 
   const id = url.searchParams.get("id");
   const pairingCode = url.searchParams.get("pairingCode");
+  console.log(`Pairing status checked: id=${id ?? "missing"} pairingCodePresent=${Boolean(pairingCode)}`);
 
   if (!id || !pairingCode) {
     throw new Error("Missing id or pairingCode");
@@ -195,25 +260,77 @@ async function handlePairingStatus(url: URL, response: http.ServerResponse) {
   const request = await prisma.pCPairingRequest.findFirst({ where: { id, pairingCode } });
 
   if (!request) {
+    console.warn(`Pairing status checked but not found: ${id}`);
     response.writeHead(404, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: "Pairing request not found" }));
     return;
+  }
+
+  console.log(`Pairing status result: ${request.id} ${request.status}`);
+  const selection = selectReachableHostIp(getRequestIp(requestMessage));
+  const manifest = createDiscoveryManifest(port, selection.hostIp);
+  console.log(`Selected reachable host IP: ${selection.hostIp} (${selection.source})`);
+  console.log("Ignored adapters:", selection.ignoredAdapters);
+
+  let approvedConfig: null | {
+    hostUrl: string;
+    apiBaseUrl: string;
+    pcId: string;
+    zoneId: string;
+    authToken: string;
+    trustedFingerprint: string;
+    wsUrl: string;
+  } = null;
+
+  if (request.status === "approved") {
+    const pc = request.assignedPcId
+      ? await prisma.pC.findUnique({
+          where: { id: request.assignedPcId },
+          include: { client: true }
+        })
+      : null;
+
+    if (!pc || !pc.client || !request.assignedToken || pc.client.authToken !== request.assignedToken || pc.zoneId !== request.zoneId) {
+      console.warn("Approved pairing is stale or inconsistent; returning to pending", {
+        pairingRequestId: request.id,
+        assignedPcId: request.assignedPcId,
+        pcFound: Boolean(pc),
+        clientFound: Boolean(pc?.client),
+        tokenMatches: pc?.client?.authToken === request.assignedToken,
+        zoneMatches: pc?.zoneId === request.zoneId
+      });
+      await prisma.pCPairingRequest.update({
+        where: { id: request.id },
+        data: {
+          status: "pending",
+          assignedPcId: null,
+          assignedPcName: null,
+          assignedToken: null
+        }
+      });
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ id: request.id, status: "pending", reason: "Pairing approval needs to be confirmed again.", rejectedReason: null, config: null }));
+      return;
+    }
+
+    approvedConfig = {
+      hostUrl: manifest.hostUrl,
+      apiBaseUrl: manifest.apiBaseUrl,
+      pcId: pc.id,
+      zoneId: pc.zoneId,
+      authToken: pc.client.authToken,
+      trustedFingerprint: pc.client.trustedFingerprint ?? request.fingerprint,
+      wsUrl: manifest.wsUrl
+    };
   }
 
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({
     id: request.id,
     status: request.status,
+    reason: request.rejectedReason,
     rejectedReason: request.rejectedReason,
-    config:
-      request.status === "approved"
-        ? {
-            pcId: request.assignedPcId,
-            zoneId: request.zoneId,
-            authToken: request.assignedToken,
-            wsUrl: createDiscoveryManifest(port).wsUrl
-          }
-        : null
+    config: approvedConfig
   }));
 }
 
@@ -229,8 +346,13 @@ const server = http.createServer((request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host ?? "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/discovery/manifest") {
+    const selection = selectReachableHostIp(getRequestIp(request));
+    const manifest = createDiscoveryManifest(port, selection.hostIp);
+    console.log(`Client discovery request from: ${getRequestIp(request) ?? "unknown"}`);
+    console.log(`Selected reachable host IP: ${selection.hostIp} (${selection.source})`);
+    console.log("Ignored adapters:", selection.ignoredAdapters);
     response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify(createDiscoveryManifest(port)));
+    response.end(JSON.stringify(manifest));
     return;
   }
 
@@ -245,7 +367,7 @@ const server = http.createServer((request, response) => {
   }
 
   if (request.method === "GET" && url.pathname === "/pairing/status") {
-    handlePairingStatus(url, response).catch((error) => {
+    handlePairingStatus(url, request, response).catch((error) => {
       response.writeHead(400, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Invalid pairing status request" }));
     });
@@ -273,6 +395,14 @@ const server = http.createServer((request, response) => {
       console.log(`Internal command received for ${body.pcId}`);
 
       const commandPayload = resolveCommandPayload(body);
+
+      if (typeof commandPayload.type === "string" && commandPayload.type === "command:unpaired") {
+        unpairConnectedPc(body.pcId, typeof commandPayload.reason === "string" ? commandPayload.reason : "PC removed by zone owner");
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
       const sent = sendCommandToPc(body.pcId, commandPayload);
 
       if (!sent) {
@@ -345,6 +475,52 @@ function emitDebugSnapshot() {
   });
 }
 
+function forgetPcSocket(pcId: string, socket?: WebSocket) {
+  const currentSocket = pcClients.get(pcId);
+
+  if (!socket || currentSocket === socket) {
+    pcClients.delete(pcId);
+    pcZones.delete(pcId);
+    pcStatuses.delete(pcId);
+    pcHeartbeats.delete(pcId);
+    activeSessionIds.delete(pcId);
+  }
+}
+
+function unpairConnectedPc(pcId: string, reason: string, socket = pcClients.get(pcId)) {
+  console.warn(`Heartbeat from deleted/unregistered PC: ${pcId}`);
+  rememberLog(`Unpaired ${pcId}: ${reason}`);
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "command:unpaired", reason }));
+    socket.close(4001, reason);
+  }
+
+  forgetPcSocket(pcId, socket);
+  emitDashboardEvent("pc:unpaired", { pcId, reason, createdAt: new Date().toISOString() });
+  emitDebugSnapshot();
+}
+
+function rejectPcAsUnpaired(ws: WebSocket, pcId: string, reason: string) {
+  console.warn(`PC rejected: pcId=${pcId} reason=${reason}`);
+
+  const payload = JSON.stringify({ type: "command:unpaired", reason });
+  const sendUnpaired = () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    }
+  };
+
+  sendUnpaired();
+  const retry = setInterval(sendUnpaired, 250);
+  setTimeout(() => {
+    clearInterval(retry);
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(1008, reason);
+    }
+  }, 2000);
+}
+
 function parseRawMessage(message: RawData): HeartbeatPayload {
   const text = message.toString();
 
@@ -407,11 +583,25 @@ function buildCommandPayload(command?: PcCommand | CommandPayload, payload?: unk
     };
   }
 
+  if (command === "command:unpaired") {
+    return {
+      type: command,
+      reason: (payload as { reason?: string } | undefined)?.reason ?? "This PC was removed from dashboard. Please pair again."
+    };
+  }
+
   return { type: command, payload: payload ?? {} };
 }
 
 async function updatePcHeartbeat(pcId: string, zoneId: string, heartbeat: HeartbeatPayload) {
   const now = new Date();
+  const pc = await prisma.pC.findUnique({ where: { id: pcId }, select: { id: true } });
+
+  if (!pc) {
+    unpairConnectedPc(pcId, "This PC was removed from dashboard. Please pair again.");
+    return;
+  }
+
   await cleanupExpiredSessionsForPc(pcId);
   const activeSession = await getActiveSessionPayload(pcId);
   const reportedStatus = isPcStatus(heartbeat.status) ? heartbeat.status : pcStatuses.get(pcId) ?? PCStatus.available;
@@ -485,6 +675,13 @@ async function cleanupExpiredSessionsForPc(pcId: string) {
 }
 
 async function updatePcStatus(pcId: string, zoneId: string, status: PCStatus) {
+  const pc = await prisma.pC.findUnique({ where: { id: pcId }, select: { id: true } });
+
+  if (!pc) {
+    unpairConnectedPc(pcId, "This PC was removed from dashboard. Please pair again.");
+    return;
+  }
+
   pcStatuses.set(pcId, status);
   await prisma.pC.update({
     where: { id: pcId },
@@ -609,7 +806,7 @@ async function completeExpiredSessions(filter: { pcId?: string } = {}) {
 
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url || "", `http://${request.headers.host}`);
-  console.log(`Incoming websocket connection URL: ${url.pathname}${url.search}`);
+  console.log(`Incoming websocket connection URL: ${redactSensitiveUrl(url)}`);
 
   if (url.pathname.startsWith("/socket.io")) {
     return;
@@ -635,20 +832,33 @@ rawWss.on("connection", async (ws, request) => {
       return;
     }
 
-    const client = await prisma.pCClient.findFirst({
-      where: {
-        pcId,
-        authToken,
-        pc: { zoneId }
-      },
-      include: { pc: true }
-    });
+    const pc = await prisma.pC.findUnique({ where: { id: pcId }, include: { client: true } });
 
-    if (!client) {
-      console.warn(`PC rejected: pcId=${pcId} zoneId=${zoneId} authTokenPresent=${Boolean(authToken)}`);
-      ws.close(1008, "Invalid PC credentials");
+    if (!pc) {
+      console.warn(`PC rejected: pcId=${pcId} zoneId=${zoneId} reason=PC not found`);
+      rejectPcAsUnpaired(ws, pcId, "This PC was removed from dashboard. Please pair again.");
       return;
     }
+
+    if (!pc.client) {
+      console.warn(`PC rejected: pcId=${pcId} zoneId=${zoneId} reason=PCClient missing`);
+      rejectPcAsUnpaired(ws, pcId, "This PC pairing is no longer valid. Please pair again.");
+      return;
+    }
+
+    if (pc.zoneId !== zoneId) {
+      console.warn(`PC rejected: pcId=${pcId} zoneId=${zoneId} reason=zone mismatch savedZone=${pc.zoneId}`);
+      rejectPcAsUnpaired(ws, pcId, "This PC belongs to another zone. Please pair again.");
+      return;
+    }
+
+    if (pc.client.authToken !== authToken) {
+      console.warn(`PC rejected: pcId=${pcId} zoneId=${zoneId} reason=token mismatch`);
+      rejectPcAsUnpaired(ws, pcId, "This PC token is no longer valid. Please pair again.");
+      return;
+    }
+
+    const client = { ...pc.client, pc };
 
     const existingSocket = pcClients.get(pcId);
 
@@ -730,16 +940,24 @@ rawWss.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       if (pcClients.get(pcId) === ws) {
-        pcClients.delete(pcId);
-        pcZones.delete(pcId);
-        pcStatuses.delete(pcId);
-        pcHeartbeats.delete(pcId);
-        activeSessionIds.delete(pcId);
+        forgetPcSocket(pcId, ws);
       }
       console.log(`PC disconnected: ${pcId}`);
       prisma.pC
-        .update({ where: { id: pcId }, data: { status: PCStatus.offline } })
-        .then(() => {
+        .findUnique({ where: { id: pcId }, select: { id: true } })
+        .then((pc) => {
+          if (!pc) {
+            console.warn(`Disconnect from deleted/unregistered PC: ${pcId}`);
+            return null;
+          }
+
+          return prisma.pC.update({ where: { id: pcId }, data: { status: PCStatus.offline } });
+        })
+        .then((updatedPc) => {
+          if (!updatedPc) {
+            return;
+          }
+
           emitDashboardEvent("pc:offline", {
             pcId,
             zoneId,

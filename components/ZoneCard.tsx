@@ -1,18 +1,17 @@
 import clsx from "clsx";
 import { MapPin, MonitorCheck } from "lucide-react";
-import { Settlement, Zone, formatPkr, formatSpica, spicaToPkr } from "@/lib/spica";
+import { Zone, formatSpica } from "@/lib/spica";
 
 type ZoneCardProps = {
   zone: Zone;
-  settlements: Settlement[];
   onSelect?: (zoneId: string) => void;
   selected?: boolean;
 };
 
-export function ZoneCard({ zone, settlements, onSelect, selected }: ZoneCardProps) {
+export function ZoneCard({ zone, onSelect, selected }: ZoneCardProps) {
   const activePcs = zone.pcs.filter((pc) => pc.sessionId || pc.status === "in_use").length;
-  const earnedToday = settlements.filter((settlement) => settlement.zoneId === zone.id).reduce((sum, item) => sum + item.grossSpica, 0);
-  const netSettlement = settlements.filter((settlement) => settlement.zoneId === zone.id).reduce((sum, item) => sum + item.zoneNetAmount, 0);
+  const availablePcs = zone.pcs.filter((pc) => pc.status === "available" && !pc.sessionId).length;
+  const startingRate = Math.min(...zone.pcs.map((pc) => pc.ratePerHour || 100), 100);
 
   return (
     <button
@@ -45,23 +44,23 @@ export function ZoneCard({ zone, settlements, onSelect, selected }: ZoneCardProp
 
       <div className="mt-6 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-          <p className="text-xs text-slate-500">Total PCs</p>
+          <p className="text-xs text-slate-500">Availability</p>
           <p className="mt-1 flex items-center gap-2 text-lg font-semibold text-white">
             <MonitorCheck className="h-4 w-4 text-cyan-200" />
-            {zone.pcs.length}
+            {availablePcs} seats
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-          <p className="text-xs text-slate-500">Active PCs</p>
+          <p className="text-xs text-slate-500">Live Sessions</p>
           <p className="mt-1 text-lg font-semibold text-white">{activePcs}</p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-          <p className="text-xs text-slate-500">SPICA Earned</p>
-          <p className="mt-1 text-lg font-semibold text-cyan-100">{formatSpica(earnedToday)}</p>
+          <p className="text-xs text-slate-500">Starting rent</p>
+          <p className="mt-1 text-lg font-semibold text-cyan-100">{formatSpica(startingRate)}/h</p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-          <p className="text-xs text-slate-500">Settlement</p>
-          <p className="mt-1 text-lg font-semibold text-purple-100">{formatPkr(spicaToPkr(netSettlement))}</p>
+          <p className="text-xs text-slate-500">Access</p>
+          <p className="mt-1 text-lg font-semibold text-purple-100">Operator verified</p>
         </div>
       </div>
     </button>

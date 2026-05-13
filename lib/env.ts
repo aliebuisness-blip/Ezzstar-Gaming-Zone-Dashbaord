@@ -65,6 +65,11 @@ function readEnvValue(key: keyof RuntimeEnv): string {
   return value;
 }
 
+export function readOptionalEnvValue(key: string): string | undefined {
+  loadDotEnv();
+  return process.env[key]?.trim() || undefined;
+}
+
 export function validateRuntimeEnv(): RuntimeEnv {
   const env = {
     DATABASE_URL: readEnvValue("DATABASE_URL"),

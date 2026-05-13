@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppStoreProvider } from "@/context/AppStore";
+import { DashboardFeedbackProvider } from "@/components/DashboardFeedback";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <AppStoreProvider>{children}</AppStoreProvider>
+        <DashboardFeedbackProvider>
+          <AppStoreProvider>{children}</AppStoreProvider>
+        </DashboardFeedbackProvider>
       </body>
     </html>
   );

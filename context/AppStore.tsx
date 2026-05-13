@@ -15,13 +15,15 @@ import {
   calculateCommission,
   calculateSessionCost,
   calculateWithdrawalFee,
-  createMockSpicaState
+  createEmptySpicaState
 } from "@/lib/spica";
 
 type ActorType = WithdrawalType;
 
 type AppStoreValue = SpicaMockState & {
   pcs: GamingPc[];
+  dashboardApiStatus: "idle" | "loading" | "ok" | "error";
+  dashboardApiError: string | null;
   serverTimeOffsetMs: number;
   buySpica: (playerId: string, amount: number) => void;
   startSession: (playerId: string, zoneId: string, pcId: string, durationMinutes: number) => boolean;
@@ -90,23 +92,34 @@ function resolveActorName(state: SpicaMockState, actorId: string, actorType: Act
 }
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<SpicaMockState>(() => createMockSpicaState());
+  const [state, setState] = useState<SpicaMockState>(() => createEmptySpicaState());
+  const [dashboardApiStatus, setDashboardApiStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [dashboardApiError, setDashboardApiError] = useState<string | null>(null);
   const [serverTimeOffsetMs, setServerTimeOffsetMs] = useState(0);
+  const [currentRole, setCurrentRole] = useState<string | null>(null);
 
   const refreshBackendDashboard = useCallback(async () => {
       if (typeof window !== "undefined" && PUBLIC_AUTH_PATHS.includes(window.location.pathname)) {
         return;
       }
 
+      setDashboardApiStatus("loading");
+      setDashboardApiError(null);
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12_000);
+
       try {
-        const response = await fetch("/api/dashboard", { credentials: "include" });
+        const response = await fetch("/api/dashboard", { credentials: "include", signal: controller.signal });
+        const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
+          setDashboardApiStatus("error");
+          setDashboardApiError(payload.error ?? (response.status === 401 ? "Your session expired. Please sign in again." : "Could not sync your profile."));
           return;
         }
 
-        const payload = await response.json();
         setServerTimeOffsetMs(payload.serverTime ? new Date(payload.serverTime).getTime() - Date.now() : 0);
+        setCurrentRole(payload.user?.role ?? null);
 
         setState((current) => {
           const sessions = payload.sessions.map((session: any) => ({
@@ -126,8 +139,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             endedAt: session.completedAt ? new Date(session.completedAt).getTime() : undefined
           }));
 
+          const currentUser = payload.user
+            ? {
+                id: payload.user.id,
+                name: payload.user.name,
+                username: payload.user.username,
+                avatar: payload.user.avatar,
+                banner: payload.user.banner,
+                bio: payload.user.bio,
+                email: payload.user.email,
+                membership: payload.user.membership,
+                favoriteGames: payload.user.favoriteGames,
+                favoriteZones: payload.user.favoriteZones,
+                xp: payload.user.xp,
+                level: payload.user.level,
+                onlineStatus: payload.user.onlineStatus,
+                balance: payload.user.spica_balance
+              }
+            : null;
+
           return {
             ...current,
+            currentUser,
             players: payload.users
               .filter((user: any) => user.role === "player")
               .map((user: any) => ({
@@ -151,6 +184,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               name: zone.name,
               city: zone.city,
               status: zone.status === "active" ? "Active" : zone.status === "suspended" || zone.status === "rejected" ? "Suspended" : "Pending",
+              owner: zone.owner
+                ? {
+                    id: zone.owner.id,
+                    name: zone.owner.name,
+                    email: zone.owner.email
+                  }
+                : undefined,
+              pricing: zone.pricing ?? {},
+              branding: zone.branding ?? {},
               pcs: zone.pcs.map((pc: any) => ({
                 ...(() => {
                   const activeSession = sessions.find((session: any) => session.pcId === pc.id && session.status === "Active");
@@ -214,14 +256,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             })),
             creditsSold: payload.analytics.creditsSold,
             debug: current.debug,
-            activity: [
-              createActivity("Backend synced", "Dashboards hydrated from PostgreSQL via /api/dashboard."),
+            activity: payload.user?.role === "player" ? current.activity : [
+              createActivity("Dashboard synced", "Dashboard data refreshed."),
               ...current.activity
-            ]
+            ].slice(0, 40)
           };
         });
-      } catch {
-        // Keep frontend mock data available when Postgres is not running.
+        setDashboardApiStatus("ok");
+      } catch (error) {
+        setDashboardApiStatus("error");
+        setDashboardApiError(error instanceof DOMException && error.name === "AbortError" ? "Profile sync timed out. Please retry." : "Could not sync your profile.");
+        // Keep production UI empty/loading instead of leaking demo identities.
+      } finally {
+        window.clearTimeout(timeout);
       }
   }, []);
 
@@ -259,6 +306,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       console.warn(`Dashboard realtime connection failed: ${realtimeUrl}`, error.message);
     });
 
+    function shouldRecordOperationalActivity() {
+      return currentRole === "zone_owner" || currentRole === "manager" || currentRole === "admin";
+    }
+
     function applyPcUpdate(payload: { pcId: string; zoneId: string; lastSeen?: string; status?: "available" | "in_use" | "offline"; activeSessionId?: string | null; remainingSeconds?: number; ipAddress?: string; machineName?: string; warning?: string; serverTime?: string }) {
       if (payload.serverTime) {
         setServerTimeOffsetMs(new Date(payload.serverTime).getTime() - Date.now());
@@ -287,7 +338,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               }
             : zone
         ),
-        activity: payload.status
+        activity: payload.status && shouldRecordOperationalActivity()
           ? [createActivity("PC status updated", `${payload.pcId} is now ${payload.status}.`), ...current.activity]
           : current.activity
       }));
@@ -328,7 +379,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : pc
           )
         })),
-        activity: [createActivity("Session update", `${payload.command} sent to ${payload.pcId}.`), ...current.activity]
+        activity: shouldRecordOperationalActivity() ? [createActivity("Session update", `${payload.command} sent to ${payload.pcId}.`), ...current.activity] : current.activity
       }));
     });
 
@@ -346,7 +397,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               }
             : zone
         ),
-        activity: [createActivity("Session ended", `${payload.sessionId} ended${payload.reason ? ` (${payload.reason})` : ""}.`), ...current.activity]
+        activity: shouldRecordOperationalActivity() ? [createActivity("Session ended", `${payload.sessionId} ended${payload.reason ? ` (${payload.reason})` : ""}.`), ...current.activity] : current.activity
       }));
     });
 
@@ -361,22 +412,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     });
 
     socket.on("pc:pairing-request", (payload: { id: string; machineName: string; ipAddress?: string; status: string }) => {
+      window.dispatchEvent(new CustomEvent("spica:pairing-update", { detail: payload }));
       setState((current) => ({
         ...current,
-        activity: [
+        activity: shouldRecordOperationalActivity() ? [
           createActivity("PC pairing request", `${payload.machineName} is requesting Zone Host approval${payload.ipAddress ? ` from ${payload.ipAddress}` : ""}.`),
           ...current.activity
-        ]
+        ] : current.activity
       }));
+    });
+
+    socket.on("pairing:update", (payload: { id: string; status: string }) => {
+      window.dispatchEvent(new CustomEvent("spica:pairing-update", { detail: payload }));
     });
 
     socket.on("pc:manual-override", (payload: { pcId: string; zoneId: string; reason?: string; machineName?: string }) => {
       setState((current) => ({
         ...current,
-        activity: [
+        activity: shouldRecordOperationalActivity() ? [
           createActivity("PC manually unlocked", `${payload.pcId} reported emergency override${payload.reason ? `: ${payload.reason}` : "."}`),
           ...current.activity
-        ]
+        ] : current.activity
       }));
     });
 
@@ -387,7 +443,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [currentRole]);
 
   function createSettlement(session: Session): Settlement {
     return buildSettlement(session);
@@ -403,6 +459,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       return {
         ...current,
+        currentUser: current.currentUser?.id === playerId ? { ...current.currentUser, balance: current.currentUser.balance + amount } : current.currentUser,
         players: current.players.map((item) => (item.id === playerId ? { ...item, balance: item.balance + amount } : item)),
         creditsSold: current.creditsSold + amount,
         transactions: [createTransaction("credit_purchase", player.id, player.name, amount), ...current.transactions],
@@ -449,6 +506,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       return {
         ...current,
+        currentUser: current.currentUser?.id === playerId ? { ...current.currentUser, balance: current.currentUser.balance - grossSpica } : current.currentUser,
         players: current.players.map((item) => (item.id === playerId ? { ...item, balance: item.balance - grossSpica } : item)),
         zones: current.zones.map((item) =>
           item.id === zoneId
@@ -491,6 +549,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       return {
         ...current,
+        currentUser: current.currentUser?.id === player.id ? { ...current.currentUser, balance: current.currentUser.balance - extraCost } : current.currentUser,
         players: current.players.map((item) => (item.id === player.id ? { ...item, balance: item.balance - extraCost } : item)),
         sessions: current.sessions.map((item) =>
           item.id === sessionId ? { ...item, durationSeconds: item.durationSeconds + extraMinutes * 60, grossSpica: item.grossSpica + extraCost } : item
@@ -608,6 +667,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const value: AppStoreValue = {
     ...state,
     pcs,
+    dashboardApiStatus,
+    dashboardApiError,
     serverTimeOffsetMs,
     buySpica,
     startSession,

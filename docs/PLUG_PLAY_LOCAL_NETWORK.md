@@ -53,6 +53,8 @@ Manual IP editing is no longer required for the PC agent flow.
 
 7. Future restarts reconnect automatically without IP, token, or env edits.
 
+The client should stay on **Waiting for owner approval** until the request is approved or rejected. After two minutes it may show a soft reminder, but it should not return to the request screen by itself.
+
 ## QA Checklist
 
 Use this checklist before installing in a real zone:
@@ -81,6 +83,26 @@ Realtime host:
 - `GET /discovery/manifest`
 - `POST /pairing/request`
 - `GET /pairing/status?id=...&pairingCode=...`
+
+## Unpair / Removed PC Behavior
+
+If a zone owner removes a paired PC while the kiosk client is still running:
+
+- dashboard deletes `PCClient`
+- dashboard sends realtime command:
+
+```json
+{
+  "type": "command:unpaired",
+  "reason": "PC removed by zone owner"
+}
+```
+
+- realtime closes the PC socket safely
+- later heartbeats from the deleted `pcId` are ignored without crashing
+- the PC client should clear trusted local config and return to pairing
+
+The CLI test agent already supports `command:unpaired`. The Electron client should mirror this behavior.
 
 ## Emergency Override
 
@@ -132,8 +154,18 @@ The CLI test agent supports `Ctrl + K` as a terminal fallback.
 
 - Refresh `/zone/pcs`.
 - Check the realtime terminal for `PC pairing request received`.
+- Check for `Pairing request received`, `Request body`, `Pairing zoneId resolved`, and `Pairing request created id`.
+- Open the debug API while signed in as admin/owner:
+  ```text
+  /api/pc-pairing/debug
+  ```
+- Open Prisma Studio and inspect:
+  ```text
+  PCPairingRequest
+  ```
 - Restart the PC client so it sends a fresh pairing request.
 - Make sure the PC client has a valid device fingerprint. The server rejects missing or very short fingerprints.
+- If the client did not send a `zoneId`, development mode assigns `zone-a` by default.
 
 ### PC was approved but will not connect
 

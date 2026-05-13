@@ -12,9 +12,9 @@ export function AppCard({ children, className, compact = false, interactive = fa
   return (
     <article
       className={clsx(
-        "rounded-2xl border border-white/10 bg-white/[0.052] shadow-nebula backdrop-blur-xl",
-        compact ? "p-4" : "p-5",
-        interactive && "transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.072]",
+        "rounded-2xl border border-white/10 bg-white/[0.045] shadow-[0_18px_60px_rgba(0,0,0,0.24)] backdrop-blur-xl",
+        compact ? "p-3.5 md:p-4" : "p-4 md:p-5",
+        interactive && "transition duration-200 hover:-translate-y-0.5 hover:border-cyan-200/25 hover:bg-white/[0.065]",
         className
       )}
     >

@@ -21,14 +21,14 @@ export function StatCard({ title, value, detail, icon: Icon, tone = "cyan" }: St
     <AppCard compact interactive>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm text-slate-500">{title}</p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-white md:text-2xl">{value}</h3>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">{title}</p>
+          <h3 className="mt-2 text-lg font-semibold tracking-tight text-white md:text-xl">{value}</h3>
         </div>
         <div className={`rounded-2xl border p-2.5 ${toneClasses[tone]}`}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
-      <p className="mt-3 text-sm leading-5 text-slate-400">{detail}</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">{detail}</p>
     </AppCard>
   );
 }

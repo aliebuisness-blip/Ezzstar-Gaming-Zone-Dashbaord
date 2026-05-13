@@ -3,6 +3,11 @@ import { jsonOk } from "@/lib/api";
 
 export async function POST() {
   const cookieStore = await cookies();
-  cookieStore.delete("spica_token");
+  cookieStore.set("spica_token", "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    expires: new Date(0)
+  });
   return jsonOk({ ok: true });
 }

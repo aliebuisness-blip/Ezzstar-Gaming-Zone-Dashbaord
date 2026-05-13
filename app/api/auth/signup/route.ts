@@ -7,19 +7,33 @@ import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
 import { audit, hashPassword, publicUser, signAuthToken } from "@/lib/server-auth";
 
 const SignupSchema = z.object({
-  name: z.string().min(2).max(80),
-  username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_-]+$/),
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
+  name: z.string().trim().min(2, "Name must be at least 2 characters.").max(80),
+  username: z.string().trim().min(3, "Username must be at least 3 characters.").max(32).regex(/^[a-zA-Z0-9_-]+$/, "Username can only use letters, numbers, underscores, and dashes."),
+  email: z.string().trim().email("Enter a valid email address."),
+  password: z.string().min(8, "Password must be at least 8 characters.").max(128),
   role: z.enum(["player", "zone_owner"]).default("player"),
-  zoneName: z.string().min(2).max(80).optional(),
-  city: z.string().min(2).max(80).optional()
+  phone: z.string().trim().max(32).optional(),
+  zoneName: z.string().trim().min(2).max(80).optional(),
+  city: z.string().trim().min(2).max(80).optional()
 });
 
 export async function POST(request: Request) {
   try {
     await ensureDatabaseConnection();
-    const input = SignupSchema.parse(await request.json());
+    const parsed = SignupSchema.safeParse(await request.json());
+
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      return Response.json(
+        {
+          error: firstIssue?.message ?? "Please check your signup details.",
+          details: parsed.error.flatten()
+        },
+        { status: 400 }
+      );
+    }
+
+    const input = parsed.data;
     const normalizedEmail = input.email.toLowerCase().trim();
     const username = input.username.toLowerCase().trim();
     const existing = await prisma.user.findFirst({

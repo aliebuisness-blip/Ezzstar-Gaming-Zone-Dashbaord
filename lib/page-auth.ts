@@ -21,6 +21,10 @@ export async function requirePageRole(role: UserRole | UserRole[]) {
 
   const roles = Array.isArray(role) ? role : [role];
 
+  if (user.role === "admin") {
+    return user;
+  }
+
   if (!roles.includes(user.role)) {
     redirect(rolePath[user.role]);
   }

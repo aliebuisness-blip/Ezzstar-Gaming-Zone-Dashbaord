@@ -69,7 +69,7 @@ input {
   }
 
   .app-input {
-    @apply rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50;
+    @apply rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-200/50;
   }
 
   .app-table {
@@ -93,5 +93,117 @@ input {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -220px 0;
+  }
+  100% {
+    background-position: calc(220px + 100%) 0;
+  }
+}
+
+.app-shimmer {
+  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  background-size: 220px 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer-in {
+  animation: drawer-in 180ms ease-out;
+}
+
+@keyframes player-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes player-soft-glow {
+  0%, 100% {
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.24);
+  }
+  50% {
+    box-shadow: 0 18px 60px rgba(34, 211, 238, 0.1);
+  }
+}
+
+@keyframes player-status-pulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes player-empty-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.player-card-in {
+  animation: player-card-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.player-card-hover {
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.player-card-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(34, 211, 238, 0.22);
+}
+
+.player-balance-attention {
+  animation: player-soft-glow 3.2s ease-in-out infinite;
+}
+
+.player-status-dot {
+  animation: player-status-pulse 1.8s ease-in-out infinite;
+}
+
+.player-empty-icon {
+  animation: player-empty-float 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-card-in,
+  .player-balance-attention,
+  .player-status-dot,
+  .player-empty-icon,
+  .animate-drawer-in,
+  .app-shimmer {
+    animation: none !important;
+  }
+
+  .player-card-hover,
+  .player-card-hover:hover {
+    transform: none;
+    transition: none;
   }
 }

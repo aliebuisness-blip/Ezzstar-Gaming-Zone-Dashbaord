@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { AuthShell } from "@/components/AuthShell";
 
 export default function ForgotPasswordPage() {
@@ -22,7 +23,10 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthShell eyebrow="Account recovery" title="Reset access safely." description="For now this uses a development placeholder flow. Production mail delivery can plug into the same endpoint later.">
+    <AuthShell eyebrow="Account recovery" title="Reset access safely." description="Enter your account email and SPICA ARENA OS will prepare a secure reset flow.">
+      <Link className="inline-flex text-sm font-medium text-slate-400 transition hover:text-cyan-100" href="/login">
+        Back to sign in
+      </Link>
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">PASSWORD RESET</p>
       <h1 className="mt-3 text-3xl font-semibold text-white">Forgot password</h1>
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
@@ -32,6 +36,12 @@ export default function ForgotPasswordPage() {
           {loading ? "Preparing reset flow..." : "Send reset instructions"}
         </button>
       </form>
+      <div className="mt-5 text-sm text-slate-400">
+        Remembered your password?{" "}
+        <Link className="text-cyan-100 transition hover:text-white" href="/login">
+          Sign in
+        </Link>
+      </div>
     </AuthShell>
   );
 }

@@ -40,8 +40,14 @@ const fingerprint = process.env.SPICA_PC_FINGERPRINT ?? `${machineName}-${proces
 let locked = true;
 let currentSession: SessionPayload | null = null;
 let socket: WebSocket | null = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let ignoreStaticConfig = false;
 
 function envConfig(): PcConfig | null {
+  if (ignoreStaticConfig) {
+    return null;
+  }
+
   const wsUrl = process.env.VITE_SERVER_WS_URL ?? process.env.SPICA_HOST_WS_URL;
   const pcId = process.env.VITE_PC_ID ?? process.env.PC_ID;
   const zoneId = process.env.VITE_ZONE_ID ?? process.env.ZONE_ID;
@@ -60,6 +66,16 @@ function readSavedConfig(): PcConfig | null {
 
 function saveConfig(config: PcConfig) {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+function clearSavedConfig() {
+  ignoreStaticConfig = true;
+
+  try {
+    fs.unlinkSync(configPath);
+  } catch {
+    // Config may already be gone.
+  }
 }
 
 function renderLockedScreen(message = "Locked") {
@@ -138,6 +154,8 @@ async function requestPairing(manifest: DiscoveryManifest): Promise<PcConfig> {
 
   console.log("SPICA Host Found");
   console.log("Pairing request sent. Approve this PC from Zone Dashboard > PCs.");
+  const waitStartedAt = Date.now();
+  let softNoteShown = false;
 
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -158,6 +176,11 @@ async function requestPairing(manifest: DiscoveryManifest): Promise<PcConfig> {
 
     if (status.status === "rejected") {
       throw new Error(status.rejectedReason ?? "Pairing rejected by Zone Host");
+    }
+
+    if (!softNoteShown && Date.now() - waitStartedAt >= 120_000) {
+      softNoteShown = true;
+      console.log("Still waiting - keep this screen open and approve from dashboard.");
     }
 
     console.log("Waiting for dashboard approval...");
@@ -222,6 +245,13 @@ function handleCommand(command: IncomingCommand) {
     return;
   }
 
+  if (command.type === "command:unpaired") {
+    clearSavedConfig();
+    renderLockedScreen(command.reason ?? "This PC was removed from dashboard. Please pair again.");
+    setTimeout(() => run(true).catch((error) => console.error(error.message)), 1500);
+    return;
+  }
+
   if (command.type === "command:show-message") {
     console.log(`SPICA MESSAGE: ${command.message ?? ""}`);
   }
@@ -230,8 +260,16 @@ function handleCommand(command: IncomingCommand) {
 function connect(config: PcConfig) {
   const url = `${config.wsUrl.replace(/\/$/, "")}/?pcId=${encodeURIComponent(config.pcId)}&zoneId=${encodeURIComponent(config.zoneId)}&authToken=${encodeURIComponent(config.authToken)}`;
   socket = new WebSocket(url);
+  const openTimeout = setTimeout(() => {
+    if (socket?.readyState !== WebSocket.OPEN) {
+      console.log("Saved host did not respond. Rediscovering Zone Host...");
+      socket?.terminate();
+      run(true).catch((error) => console.error(error.message));
+    }
+  }, 8000);
 
   socket.on("open", () => {
+    clearTimeout(openTimeout);
     console.log(`PC connected to ${config.wsUrl} as ${config.pcId}`);
     send({ type: "pc:recover-session", pcId: config.pcId, zoneId: config.zoneId, machineName, installedVersion, fingerprint });
   });
@@ -244,9 +282,18 @@ function connect(config: PcConfig) {
     }
   });
 
-  socket.on("close", () => {
-    console.log("PC socket closed. Reconnecting after LAN rediscovery...");
-    setTimeout(() => run(true).catch((error) => console.error(error.message)), 2500);
+  socket.on("close", (code, reason) => {
+    clearTimeout(openTimeout);
+    const reasonText = reason.toString();
+    console.log(`PC socket closed (${code}${reasonText ? `: ${reasonText}` : ""}). Reconnecting after LAN rediscovery...`);
+    if (code === 1008 || reasonText.toLowerCase().includes("pair again") || reasonText.toLowerCase().includes("removed")) {
+      console.log("Trusted PC config rejected by host. Clearing saved config and returning to pairing.");
+      clearSavedConfig();
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+    }
+    reconnectTimer = setTimeout(() => run(true).catch((error) => console.error(error.message)), 2500);
   });
 
   socket.on("error", (error) => {

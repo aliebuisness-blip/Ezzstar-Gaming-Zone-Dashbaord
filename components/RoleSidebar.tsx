@@ -46,6 +46,9 @@ export type RoleNavKey =
   | "Payout Requests"
   | "Players"
   | "Requests"
+  | "Announcements"
+  | "Moderation"
+  | "Support"
   | "System Health"
   | "All Zones"
   | "All Players"
@@ -92,9 +95,12 @@ const roleMeta = {
       { label: "Home", href: "/admin", icon: Gauge },
       { label: "Zones", href: "/admin/zones", icon: Landmark },
       { label: "Players", href: "/admin/players", icon: UserRound },
-      { label: "Sessions", href: "/admin/sessions", icon: Timer },
-      { label: "Settlements", href: "/admin/settlements", icon: Banknote },
       { label: "Requests", href: "/admin/requests", icon: WalletCards },
+      { label: "Settlements", href: "/admin/settlements", icon: Banknote },
+      { label: "Tournaments", href: "/admin/tournaments", icon: Trophy },
+      { label: "Announcements", href: "/admin/announcements", icon: Sparkles },
+      { label: "Moderation", href: "/admin/moderation", icon: ShieldCheck },
+      { label: "Support", href: "/admin/support", icon: Users },
       { label: "System Health", href: "/admin/system-health", icon: BarChart3 },
       { label: "Settings", href: "/admin/settings", icon: Settings }
     ]
@@ -153,14 +159,14 @@ export function RoleSidebar({ role, activeView, onViewChange }: RoleSidebarProps
         </nav>
       </aside>
 
-      <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-black/75 p-2 shadow-nebula backdrop-blur-2xl lg:hidden">
-        {meta.nav.slice(0, 4).map((item) => {
+      <nav className="fixed inset-x-3 bottom-3 z-40 flex gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-black/85 p-2 shadow-nebula lg:hidden">
+        {meta.nav.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || activeView === item.label;
           return (
             <Link
               className={clsx(
-                "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-semibold transition",
+                "flex min-h-14 min-w-[72px] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-semibold transition",
                 isActive ? "bg-cyan-300/15 text-cyan-100" : "text-slate-500 hover:bg-white/[0.06] hover:text-white"
               )}
               href={item.href}

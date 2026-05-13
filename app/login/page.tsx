@@ -25,6 +25,7 @@ export default function LoginPage() {
     setLoading(true);
     const response = await fetch("/api/auth/login", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
     });
@@ -41,6 +42,9 @@ export default function LoginPage() {
 
   return (
     <AuthShell eyebrow="Command access" title="One account. Every arena." description="Sign in to your SPICA identity, gaming zone console, or Ezzstar command center with role-aware routing.">
+      <Link className="inline-flex text-sm font-medium text-slate-400 transition hover:text-cyan-100" href="/">
+        Back to home
+      </Link>
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">SPICA ARENA OS</p>
       <h1 className="mt-3 text-3xl font-semibold text-white">Sign in</h1>
       <p className="mt-3 text-sm leading-6 text-slate-400">Use your player, zone owner, manager, or admin account.</p>

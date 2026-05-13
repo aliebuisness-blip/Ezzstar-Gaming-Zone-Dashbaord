@@ -29,7 +29,9 @@ export async function GET(request: NextRequest) {
       take: 50
     });
 
-    return jsonOk({ pairingRequests });
+    console.log(`Loaded pairing requests count: ${pairingRequests.length}`);
+
+    return jsonOk({ requests: pairingRequests, pairingRequests });
   } catch (error) {
     return jsonError(error);
   }

@@ -8,8 +8,12 @@
     "start": "next start",
     "lint": "next lint",
     "check:env": "node scripts/check-env.js",
+    "check:prod-data": "node scripts/check-production-data-guard.js",
+    "supabase:storage": "node scripts/setup-supabase-storage.js",
     "check:db": "tsx scripts/check-db.ts",
-    "db:reset-demo": "prisma migrate reset --force && prisma db seed",
+    "db:reset-demo": "prisma migrate reset --force && npm run db:seed:dev",
+    "db:seed:prod": "tsx prisma/seed.prod.ts",
+    "db:seed:dev": "tsx prisma/seed.dev.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
@@ -17,7 +21,7 @@
     "pc-agent": "tsx pc-agent/agent.ts"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.prod.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

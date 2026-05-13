@@ -1,0 +1,57 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Dependencies
+node_modules/
+
+# Next.js build/cache output
+.next/
+out/
+
+# Production/build artifacts
+dist/
+build/
+release/
+*.tsbuildinfo
+
+# Prisma/generated local artifacts
+node_modules/.prisma/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Logs and local temp files
+*.log
+logs/
+tmp-*.log
+*.tmp
+*.temp
+.cache/
+
+# Electron/PC client local runtime and pairing state
+pc-agent/*.local.*
+pc-agent/.env*
+pc-agent/runtime/
+pc-agent/storage/
+pc-agent/pairing/
+pc-agent/trusted-config*.json
+pc-agent/**/trusted-config*.json
+pc-agent/**/pairing*.json
+pc-agent/**/runtime*.json
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json

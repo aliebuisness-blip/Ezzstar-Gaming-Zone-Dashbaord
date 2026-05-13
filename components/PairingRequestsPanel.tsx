@@ -6,6 +6,7 @@ import { AppButton } from "@/components/ui/AppButton";
 import { AppCard } from "@/components/ui/AppCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { useDashboardFeedback } from "@/components/DashboardFeedback";
 
 type PairingRequest = {
   id: string;
@@ -24,6 +25,7 @@ export function PairingRequestsPanel() {
   const [loading, setLoading] = useState(false);
   const [pcNameById, setPcNameById] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
+  const { confirm, toast } = useDashboardFeedback();
 
   async function loadRequests() {
     setLoading(true);
@@ -32,15 +34,25 @@ export function PairingRequestsPanel() {
     setLoading(false);
 
     if (response.ok) {
-      setRequests(payload.pairingRequests ?? []);
+      setRequests(payload.requests ?? payload.pairingRequests ?? []);
     } else {
-      setMessage(payload.error ?? "Could not load pairing requests.");
+      setMessage("Pairing requests could not be loaded. Please try again.");
+      toast("error", "Pairing requests could not be loaded.");
     }
   }
 
   async function approve(id: string) {
     const request = requests.find((item) => item.id === id);
     const pcName = pcNameById[id] || request?.requestedPcName || request?.machineName || "PC";
+    const confirmed = await confirm({
+      title: `Approve ${pcName}?`,
+      description: "This will trust the client PC and create an operational PC record for this zone.",
+      impact: "Only approve machines you recognize on your local gaming zone network.",
+      confirmLabel: "Approve PC"
+    });
+
+    if (!confirmed) return;
+
     const response = await fetch(`/api/pc-pairing/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -48,11 +60,24 @@ export function PairingRequestsPanel() {
       body: JSON.stringify({ action: "approve", pcName, category: "standard", ratePerHour: 100 })
     });
     const payload = await response.json().catch(() => ({}));
-    setMessage(response.ok ? `${pcName} paired successfully.` : payload.error ?? "Pairing approval failed.");
+    const nextMessage = response.ok ? `${pcName} paired successfully.` : payload.error ?? "Pairing approval failed.";
+    setMessage(nextMessage);
+    toast(response.ok ? "success" : "error", response.ok ? "Pairing request approved." : "Pairing approval failed.");
     await loadRequests();
   }
 
   async function reject(id: string) {
+    const request = requests.find((item) => item.id === id);
+    const confirmed = await confirm({
+      title: "Reject pairing request?",
+      description: `This will deny ${request?.machineName ?? "this PC"} from joining your zone.`,
+      impact: "The client will return to the pairing screen and can request access again later.",
+      confirmLabel: "Reject request",
+      destructive: true
+    });
+
+    if (!confirmed) return;
+
     const response = await fetch(`/api/pc-pairing/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -61,11 +86,22 @@ export function PairingRequestsPanel() {
     });
     const payload = await response.json().catch(() => ({}));
     setMessage(response.ok ? "Pairing request rejected." : payload.error ?? "Pairing rejection failed.");
+    toast(response.ok ? "success" : "error", response.ok ? "Pairing request rejected." : "Pairing rejection failed.");
     await loadRequests();
   }
 
   useEffect(() => {
     loadRequests();
+
+    const interval = window.setInterval(loadRequests, 3000);
+    const handleRealtimePairingUpdate = () => loadRequests();
+
+    window.addEventListener("spica:pairing-update", handleRealtimePairingUpdate);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("spica:pairing-update", handleRealtimePairingUpdate);
+    };
   }, []);
 
   const pending = requests.filter((request) => request.status === "pending");
@@ -87,9 +123,9 @@ export function PairingRequestsPanel() {
       {message ? <p className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-slate-300">{message}</p> : null}
 
       <div className="mt-5 space-y-3">
-        {loading ? <p className="text-sm text-slate-500">Loading command center...</p> : null}
+        {loading ? <p className="text-sm text-slate-500">Checking pairing requests...</p> : null}
         {!loading && pending.length === 0 ? (
-          <EmptyState description="Launch a PC client on the same LAN. It will discover the Zone Host and appear here for approval." title="No pending PC requests" />
+          <EmptyState description="Launch a PC client on the same local network. It will discover the Zone Host and appear here for approval." title="No pending PC pairing requests" />
         ) : null}
         {pending.map((request) => (
           <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/25 p-3 md:grid-cols-[1fr_180px_auto] md:items-center" key={request.id}>

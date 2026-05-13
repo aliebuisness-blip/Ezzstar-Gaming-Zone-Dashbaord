@@ -181,6 +181,7 @@ model PC {
   lastHeartbeat DateTime?
   ipAddress     String?
   machineName   String?
+  trustedFingerprint String?
   zone          Zone        @relation(fields: [zoneId], references: [id])
   sessions      Session[]
   client        PCClient?

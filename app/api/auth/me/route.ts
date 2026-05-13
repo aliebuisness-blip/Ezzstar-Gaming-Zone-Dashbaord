@@ -7,8 +7,8 @@ import { publicUser, requireApiUser } from "@/lib/server-auth";
 const ProfileSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_-]+$/).optional(),
-  avatar: z.string().max(300).optional(),
-  banner: z.string().max(300).optional(),
+  avatar: z.string().max(1000).optional(),
+  banner: z.string().max(1000).optional(),
   bio: z.string().max(280).optional(),
   favoriteGames: z.array(z.string().min(1).max(40)).max(12).optional(),
   favoriteZones: z.array(z.string().min(1)).max(20).optional(),
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     await ensureDatabaseConnection();
     const auth = await requireApiUser(request);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: auth.id } });
-    const [sessions, totalSeconds, spend, achievements, notifications, friends, feed] = await Promise.all([
+    const [sessions, totalSeconds, spend, achievements, notifications, friends] = await Promise.all([
       prisma.session.findMany({
         where: { playerId: auth.id },
         include: { zone: true, pc: true, settlement: true },
@@ -38,8 +38,7 @@ export async function GET(request: NextRequest) {
         where: { OR: [{ requesterId: auth.id }, { addresseeId: auth.id }] },
         include: { requester: true, addressee: true },
         orderBy: { createdAt: "desc" }
-      }),
-      prisma.ecosystemActivity.findMany({ include: { user: true, zone: true }, orderBy: { createdAt: "desc" }, take: 30 })
+      })
     ]);
 
     return jsonOk({
@@ -52,7 +51,7 @@ export async function GET(request: NextRequest) {
         achievements,
         notifications,
         friends,
-        feed
+        feed: []
       }
     });
   } catch (error) {

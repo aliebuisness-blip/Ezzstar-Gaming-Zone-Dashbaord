@@ -10,7 +10,7 @@ import { startSession } from "@/lib/session-service";
 const StartSessionSchema = z.object({
   zoneId: z.string().min(1),
   pcId: z.string().min(1),
-  playerId: z.string().min(1).optional(),
+  playerId: z.string().min(1),
   durationMinutes: z.number().int().positive().max(24 * 60)
 });
 
@@ -31,20 +31,6 @@ async function resolvePcId(zoneId: string, pcIdOrName: string) {
     return byName.id;
   }
 
-  const connectedDevPc = await prisma.pC.findFirst({
-    where: {
-      zoneId,
-      id: "pc-01",
-      lastHeartbeat: { gte: new Date(Date.now() - 30_000) }
-    },
-    select: { id: true }
-  });
-
-  if (connectedDevPc) {
-    console.log(`Mapped stale PC id ${pcIdOrName} to currently connected PC ${connectedDevPc.id}`);
-    return connectedDevPc.id;
-  }
-
   return pcIdOrName;
 }
 
@@ -54,11 +40,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log("BODY:", body);
     await ensureDatabaseConnection();
-    const auth = await requireApiUser(request, [UserRole.player, UserRole.zone_owner, UserRole.manager, UserRole.admin]);
+    await requireApiUser(request, [UserRole.zone_owner, UserRole.manager, UserRole.admin]);
     const input = StartSessionSchema.parse(body);
     const resolvedPcId = await resolvePcId(input.zoneId, input.pcId);
     console.log(`selected pcId ${resolvedPcId}`);
-    const playerId = auth.role === UserRole.player ? auth.id : input.playerId ?? auth.id;
+    const playerId = input.playerId;
     const session = await startSession(playerId, input.zoneId, resolvedPcId, input.durationMinutes);
     const commandPcId = session.pc.id;
     console.log(`session created id ${session.id}`);
@@ -84,7 +70,7 @@ export async function POST(request: NextRequest) {
       console.warn(`start-session command dispatch failed for ${commandPcId}`);
     }
 
-    return jsonOk({ session });
+    return jsonOk({ session, commandSent });
   } catch (error) {
     return jsonError(error);
   }

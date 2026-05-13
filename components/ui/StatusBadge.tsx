@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-type StatusTone = "online" | "offline" | "active" | "warning" | "neutral" | "success" | "danger";
+type StatusTone = "online" | "offline" | "active" | "warning" | "neutral" | "success" | "danger" | "recovering" | "maintenance";
 
 type StatusBadgeProps = {
   children: string;
@@ -15,7 +15,9 @@ const toneClasses: Record<StatusTone, string> = {
   warning: "border-amber-300/30 bg-amber-300/10 text-amber-100",
   neutral: "border-white/10 bg-white/[0.055] text-slate-300",
   success: "border-emerald-300/25 bg-emerald-300/10 text-emerald-100",
-  danger: "border-red-300/25 bg-red-400/10 text-red-100"
+  danger: "border-red-300/25 bg-red-400/10 text-red-100",
+  recovering: "border-sky-300/25 bg-sky-300/10 text-sky-100",
+  maintenance: "border-amber-300/30 bg-amber-300/10 text-amber-100"
 };
 
 export function StatusBadge({ children, tone = "neutral", pulse = false }: StatusBadgeProps) {

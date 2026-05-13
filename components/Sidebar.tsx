@@ -71,7 +71,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       <div className="absolute bottom-6 left-5 right-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-nebula">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Credit Rail</p>
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-sm text-slate-300">Mock Network Live</span>
+          <span className="text-sm text-slate-300">SPICA Credits Live</span>
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
         </div>
       </div>
