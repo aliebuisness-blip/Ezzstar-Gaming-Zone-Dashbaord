@@ -128,10 +128,25 @@ export default function ListYourZonePage() {
               ["zoneName", "Gaming zone name", "text"],
               ["city", "City", "text"],
               ["currentPricingModel", "Current pricing model", "text"]
-            ].map(([key, label, type]) => (
+            ].map(([key, label, type]) => {
+              const autocomplete =
+                key === "email"
+                  ? "email"
+                  : key === "password"
+                    ? "new-password"
+                    : key === "confirmPassword"
+                      ? "new-password"
+                      : key === "phone"
+                        ? "tel"
+                        : key === "ownerName"
+                          ? "name"
+                          : "off";
+
+              return (
               <label className="block" key={key}>
                 <span className="text-sm text-slate-400">{label}</span>
                 <input
+                  autoComplete={autocomplete}
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50"
                   onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
                   required
@@ -139,7 +154,8 @@ export default function ListYourZonePage() {
                   value={String(form[key as keyof FormState])}
                 />
               </label>
-            ))}
+            );
+            })}
             <label className="block">
               <span className="text-sm text-slate-400">Number of PCs</span>
               <input

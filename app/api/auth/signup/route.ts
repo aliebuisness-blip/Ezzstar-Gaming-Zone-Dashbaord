@@ -43,9 +43,19 @@ export async function POST(request: Request) {
     await setSupabaseSessionCookies(session, request.url);
 
     return jsonOk({
+      ok: true,
       user: publicProfile(profile)
     });
   } catch (error) {
-    return jsonError(error);
+    const message = error instanceof Error ? error.message : "Could not create account.";
+    const lower = message.toLowerCase();
+    const status = lower.includes("already") || lower.includes("registered") || lower.includes("duplicate") ? 409 : lower.includes("supabase web auth is not configured") ? 503 : 400;
+    return Response.json(
+      {
+        ok: false,
+        error: status === 409 ? "This email or username is already registered." : message || "Could not create account."
+      },
+      { status }
+    );
   }
 }

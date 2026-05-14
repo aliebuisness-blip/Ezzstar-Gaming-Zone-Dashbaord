@@ -21,8 +21,8 @@ export default function SignupPage() {
     const cleanUsername = username.trim();
     const cleanEmail = email.trim().toLowerCase();
 
-    if (cleanUsername.length < 3) {
-      setError("Username must be at least 3 characters.");
+    if (cleanUsername.length < 3 || !/^[a-zA-Z0-9_-]+$/.test(cleanUsername)) {
+      setError("Username must be at least 3 characters and can only use letters, numbers, underscores, and dashes.");
       return;
     }
 
@@ -66,7 +66,7 @@ export default function SignupPage() {
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
         <input autoComplete="username" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setUsername(event.target.value)} placeholder="Username" value={username} />
         <input autoComplete="email" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" value={email} />
-        <input className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setPhone(event.target.value)} placeholder="Phone (optional)" value={phone} />
+        <input autoComplete="tel" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setPhone(event.target.value)} placeholder="Phone (optional)" value={phone} />
         <input autoComplete="new-password" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" value={password} />
         <input autoComplete="new-password" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-cyan-200/50" onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm password" type="password" value={confirmPassword} />
         {error ? <p className="text-sm text-red-300">{error}</p> : null}

@@ -88,8 +88,17 @@ export async function POST(request: Request) {
       status: "pending"
     });
 
-    return jsonOk({ request: listingRequest, zone: { id: zone.id, status: zone.status }, user: { id: authUser.id, email, role: "zone_owner" } });
+    return jsonOk({ ok: true, request: listingRequest, zone: { id: zone.id, status: zone.status }, user: { id: authUser.id, email, role: "zone_owner" } });
   } catch (error) {
-    return jsonError(error);
+    const message = error instanceof Error ? error.message : "Could not submit listing request.";
+    const lower = message.toLowerCase();
+    const status = lower.includes("already") || lower.includes("registered") || lower.includes("duplicate") ? 409 : lower.includes("supabase web auth is not configured") ? 503 : 400;
+    return Response.json(
+      {
+        ok: false,
+        error: status === 409 ? "This business email is already registered. Please sign in instead." : message
+      },
+      { status }
+    );
   }
 }

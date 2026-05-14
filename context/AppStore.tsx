@@ -39,6 +39,31 @@ type AppStoreValue = SpicaMockState & {
 
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 const PUBLIC_AUTH_PATHS = ["/login", "/signup", "/forgot-password", "/list-your-zone"];
+const DASHBOARD_PATH_PREFIXES = ["/player", "/admin", "/zone"];
+
+function shouldConnectDashboardRealtime(configuredRealtimeUrl?: string) {
+  if (typeof window === "undefined" || !configuredRealtimeUrl) {
+    return false;
+  }
+
+  const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  const isZoneSurface = window.location.pathname.startsWith("/zone");
+
+  if (isLocalHost && isZoneSurface) {
+    return true;
+  }
+
+  if (window.location.protocol === "https:") {
+    return configuredRealtimeUrl.startsWith("wss://") || configuredRealtimeUrl.startsWith("https://");
+  }
+
+  return isZoneSurface && !/^wss?:\/\/(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(configuredRealtimeUrl);
+}
+
+function resolveDashboardRealtimeUrl(configuredRealtimeUrl: string) {
+  const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  return isLocalHost && window.location.pathname.startsWith("/zone") ? "http://localhost:4001" : configuredRealtimeUrl;
+}
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -99,7 +124,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [currentRole, setCurrentRole] = useState<string | null>(null);
 
   const refreshBackendDashboard = useCallback(async () => {
-      if (typeof window !== "undefined" && PUBLIC_AUTH_PATHS.includes(window.location.pathname)) {
+      if (
+        typeof window !== "undefined" &&
+        (PUBLIC_AUTH_PATHS.includes(window.location.pathname) || !DASHBOARD_PATH_PREFIXES.some((prefix) => window.location.pathname.startsWith(prefix)))
+      ) {
         return;
       }
 
@@ -125,17 +153,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           const sessions = payload.sessions.map((session: any) => ({
             id: session.id,
             playerId: session.playerId,
-            playerName: session.player?.name ?? "Player",
+            playerName: session.playerName ?? session.player?.name ?? "Player",
             zoneId: session.zoneId,
-            zoneName: session.zone?.name ?? "Zone",
+            zoneName: session.zoneName ?? session.zone?.name ?? "Zone",
             pcId: session.pcId,
-            pcName: session.pc?.name ?? "PC",
-            pcType: session.pc?.name?.endsWith("07") || session.pc?.name?.endsWith("08") ? "Premium" : "Standard",
+            pcName: session.pcName ?? session.pc?.name ?? "PC",
+            pcType: (session.pcName ?? session.pc?.name)?.endsWith("07") || (session.pcName ?? session.pc?.name)?.endsWith("08") ? "Premium" : "Standard",
             startTime: new Date(session.startTime).getTime(),
             durationSeconds: session.durationSeconds,
-            ratePerHour: session.pc?.name?.endsWith("07") || session.pc?.name?.endsWith("08") ? 150 : 100,
-            grossSpica: session.gross,
-            status: session.status === "active" ? "Active" : "Completed",
+            ratePerHour: (session.pcName ?? session.pc?.name)?.endsWith("07") || (session.pcName ?? session.pc?.name)?.endsWith("08") ? 150 : 100,
+            grossSpica: session.grossSpica ?? session.gross ?? 0,
+            status: session.status === "active" || session.status === "Active" ? "Active" : "Completed",
             endedAt: session.completedAt ? new Date(session.completedAt).getTime() : undefined
           }));
 
@@ -283,14 +311,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
     const configuredRealtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
 
-    if (!configuredRealtimeUrl) {
+    if (!shouldConnectDashboardRealtime(configuredRealtimeUrl)) {
       return;
     }
 
-    const realtimeUrl =
-      window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-        ? "http://localhost:4001"
-        : configuredRealtimeUrl;
+    const realtimeUrl = resolveDashboardRealtimeUrl(configuredRealtimeUrl!);
 
     const socket = io(realtimeUrl, {
       auth: { clientType: "dashboard" },
@@ -298,13 +323,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       reconnection: true
     });
 
-    socket.on("connect", () => {
-      console.log(`Dashboard realtime connected: ${realtimeUrl}`);
-    });
+    socket.on("connect", () => undefined);
 
-    socket.on("connect_error", (error) => {
-      console.warn(`Dashboard realtime connection failed: ${realtimeUrl}`, error.message);
-    });
+    socket.on("connect_error", () => undefined);
 
     function shouldRecordOperationalActivity() {
       return currentRole === "zone_owner" || currentRole === "manager" || currentRole === "admin";
