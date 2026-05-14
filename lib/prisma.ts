@@ -1,7 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { validateRuntimeEnv } from "./env";
-
-validateRuntimeEnv();
+import { assertLocalZoneRuntimeEnabled } from "./local-zone-runtime";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
@@ -19,6 +17,8 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export async function ensureDatabaseConnection() {
+  assertLocalZoneRuntimeEnabled();
+
   if (globalForPrisma.prismaConnected) {
     return;
   }

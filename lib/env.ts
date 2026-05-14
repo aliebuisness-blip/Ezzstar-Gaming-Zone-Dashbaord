@@ -87,7 +87,7 @@ export function validateRuntimeEnv(): RuntimeEnv {
 }
 
 export function getJwtSecret(): string {
-  const { JWT_SECRET } = validateRuntimeEnv();
+  const JWT_SECRET = readEnvValue("JWT_SECRET");
 
   if (!globalForEnv.jwtLogged) {
     globalForEnv.jwtLogged = true;
