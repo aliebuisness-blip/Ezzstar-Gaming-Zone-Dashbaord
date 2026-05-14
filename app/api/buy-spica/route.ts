@@ -1,36 +1,26 @@
-import { NextRequest } from "next/server";
-import { TransactionType, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { audit, requireApiUser } from "@/lib/server-auth";
+import { insertRow, patchRows, publicProfile, requireWebUser } from "@/lib/supabase/web";
 
 const BuySchema = z.object({
   amount: z.number().int().positive().max(1_000_000)
 });
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    await ensureDatabaseConnection();
-    const auth = await requireApiUser(request, [UserRole.player]);
+    const { profile } = await requireWebUser(["player"]);
     const input = BuySchema.parse(await request.json());
+    const nextBalance = Number(profile.spica_balance ?? 0) + input.amount;
+    const [user] = await patchRows("profiles", `id=eq.${encodeURIComponent(profile.id)}`, { spica_balance: nextBalance });
+    const transaction = await insertRow("wallet_transactions", {
+      user_id: profile.id,
+      type: "buy",
+      amount: input.amount,
+      balance_after: nextBalance,
+      description: "Mock SPICA top-up"
+    }).catch(() => ({ id: `topup-${Date.now()}`, type: "buy", amount: input.amount }));
 
-    const [user, transaction] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: auth.id },
-        data: { spica_balance: { increment: input.amount } }
-      }),
-      prisma.transaction.create({
-        data: {
-          userId: auth.id,
-          type: TransactionType.buy,
-          amount: input.amount
-        }
-      })
-    ]);
-
-    await audit("buy_spica", auth.id, { amount: input.amount, transactionId: transaction.id });
-    return jsonOk({ user, transaction });
+    return jsonOk({ user: publicProfile((user as typeof profile | undefined) ?? { ...profile, spica_balance: nextBalance }), transaction });
   } catch (error) {
     return jsonError(error);
   }

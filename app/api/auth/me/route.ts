@@ -1,8 +1,6 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { publicUser, requireApiUser } from "@/lib/server-auth";
+import { patchRows, publicProfile, requireWebUser, selectRows } from "@/lib/supabase/web";
 
 const ProfileSchema = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -11,46 +9,27 @@ const ProfileSchema = z.object({
   banner: z.string().max(1000).optional(),
   bio: z.string().max(280).optional(),
   favoriteGames: z.array(z.string().min(1).max(40)).max(12).optional(),
-  favoriteZones: z.array(z.string().min(1)).max(20).optional(),
-  onlineStatus: z.string().max(32).optional()
+  favoriteZones: z.array(z.string().min(1)).max(20).optional()
 });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    await ensureDatabaseConnection();
-    const auth = await requireApiUser(request);
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: auth.id } });
-    const [sessions, totalSeconds, spend, achievements, notifications, friends] = await Promise.all([
-      prisma.session.findMany({
-        where: { playerId: auth.id },
-        include: { zone: true, pc: true, settlement: true },
-        orderBy: { startTime: "desc" },
-        take: 25
-      }),
-      prisma.session.aggregate({
-        where: { playerId: auth.id, status: "completed" },
-        _sum: { durationSeconds: true }
-      }),
-      prisma.transaction.aggregate({ where: { userId: auth.id, type: "spend" }, _sum: { amount: true } }),
-      prisma.userAchievement.findMany({ where: { userId: auth.id }, include: { achievement: true }, orderBy: { unlockedAt: "desc" } }),
-      prisma.playerNotification.findMany({ where: { userId: auth.id }, orderBy: { createdAt: "desc" }, take: 20 }),
-      prisma.friendship.findMany({
-        where: { OR: [{ requesterId: auth.id }, { addresseeId: auth.id }] },
-        include: { requester: true, addressee: true },
-        orderBy: { createdAt: "desc" }
-      })
+    const { profile } = await requireWebUser();
+    const [sessions, notifications] = await Promise.all([
+      selectRows("player_sessions", `player_id=eq.${encodeURIComponent(profile.id)}&select=*&order=created_at.desc&limit=25`).catch(() => []),
+      selectRows("notifications", `user_id=eq.${encodeURIComponent(profile.id)}&select=*&order=created_at.desc&limit=20`).catch(() => [])
     ]);
 
     return jsonOk({
-      user: publicUser(user),
+      user: publicProfile(profile),
       profile: {
-        totalHoursPlayed: Number(((totalSeconds._sum.durationSeconds ?? 0) / 3600).toFixed(2)),
-        totalSpicaSpent: spend._sum.amount ?? 0,
+        totalHoursPlayed: 0,
+        totalSpicaSpent: 0,
         sessionHistory: sessions,
-        favoriteZones: user.favoriteZones,
-        achievements,
+        favoriteZones: [],
+        achievements: [],
         notifications,
-        friends,
+        friends: [],
         feed: []
       }
     });
@@ -59,27 +38,25 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+export async function PATCH(request: Request) {
   try {
-    await ensureDatabaseConnection();
-    const auth = await requireApiUser(request);
+    const { profile } = await requireWebUser();
     const input = ProfileSchema.parse(await request.json());
-    const user = await prisma.user.update({
-      where: { id: auth.id },
-      data: {
+    const [updated] = await patchRows(
+      "profiles",
+      `id=eq.${encodeURIComponent(profile.id)}`,
+      {
         name: input.name,
         username: input.username?.toLowerCase(),
-        avatar: input.avatar,
-        banner: input.banner,
+        avatar_url: input.avatar,
+        banner_url: input.banner,
         bio: input.bio,
-        favoriteGames: input.favoriteGames,
-        favoriteZones: input.favoriteZones,
-        onlineStatus: input.onlineStatus,
-        lastSeenAt: new Date()
+        favorite_games: input.favoriteGames,
+        favorite_zones: input.favoriteZones
       }
-    });
+    );
 
-    return jsonOk({ user: publicUser(user) });
+    return jsonOk({ user: publicProfile((updated as typeof profile | undefined) ?? profile) });
   } catch (error) {
     return jsonError(error);
   }

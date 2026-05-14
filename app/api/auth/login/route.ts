@@ -1,8 +1,6 @@
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { audit, publicUser, signAuthToken, verifyPassword } from "@/lib/server-auth";
+import { getProfile, publicProfile, setSupabaseSessionCookies, signInWithPassword, upsertProfile, WebRole } from "@/lib/supabase/web";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -11,31 +9,22 @@ const LoginSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    await ensureDatabaseConnection();
     const input = LoginSchema.parse(await request.json());
-    const normalizedEmail = input.email.toLowerCase().trim();
-    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-
-    if (!user || !(await verifyPassword(input.password, user.password))) {
-      return Response.json({ error: "Invalid email or password" }, { status: 401 });
-    }
-
-    const token = signAuthToken({ id: user.id, email: user.email, role: user.role, username: user.username });
-    const cookieStore = await cookies();
-
-    const isHttps = new URL(request.url).protocol === "https:";
-
-    cookieStore.set("spica_token", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: process.env.NODE_ENV === "production" && isHttps
+    const email = input.email.toLowerCase().trim();
+    const session = await signInWithPassword(email, input.password);
+    const metadataRole = (session.user.app_metadata?.role ?? session.user.user_metadata?.role ?? "player") as WebRole;
+    const profile = await getProfile(session.user.id) ?? await upsertProfile({
+      id: session.user.id,
+      email: session.user.email ?? email,
+      name: String(session.user.user_metadata?.name ?? session.user.email ?? email),
+      username: String(session.user.user_metadata?.username ?? email.split("@")[0]),
+      role: metadataRole
     });
 
-    await audit("login", user.id);
+    await setSupabaseSessionCookies(session, request.url);
+
     return jsonOk({
-      token,
-      user: publicUser(user)
+      user: publicProfile(profile)
     });
   } catch (error) {
     return jsonError(error);

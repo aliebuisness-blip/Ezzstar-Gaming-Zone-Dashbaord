@@ -1,33 +1,29 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { UserRole } from "@prisma/client";
-import { verifyAuthToken } from "@/lib/server-auth";
+import { requireWebUser, WebRole } from "@/lib/supabase/web";
 
-const rolePath: Record<UserRole, string> = {
+const rolePath: Record<WebRole, string> = {
   player: "/player",
   zone_owner: "/zone",
   manager: "/zone",
   admin: "/admin"
 };
 
-export async function requirePageRole(role: UserRole | UserRole[]) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("spica_token")?.value;
-  const user = token ? verifyAuthToken(token) : null;
-
-  if (!user) {
-    redirect("/login");
-  }
-
+export async function requirePageRole(role: WebRole | WebRole[]) {
   const roles = Array.isArray(role) ? role : [role];
 
-  if (user.role === "admin") {
-    return user;
-  }
+  try {
+    const { profile } = await requireWebUser();
 
-  if (!roles.includes(user.role)) {
-    redirect(rolePath[user.role]);
-  }
+    if (profile.role === "admin") {
+      return profile;
+    }
 
-  return user;
+    if (!roles.includes(profile.role)) {
+      redirect(rolePath[profile.role] ?? "/login");
+    }
+
+    return profile;
+  } catch {
+    redirect("/login");
+  }
 }

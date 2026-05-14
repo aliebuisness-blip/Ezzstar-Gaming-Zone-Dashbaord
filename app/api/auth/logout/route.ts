@@ -1,13 +1,7 @@
-import { cookies } from "next/headers";
 import { jsonOk } from "@/lib/api";
+import { clearSupabaseSessionCookies } from "@/lib/supabase/web";
 
 export async function POST() {
-  const cookieStore = await cookies();
-  cookieStore.set("spica_token", "", {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    expires: new Date(0)
-  });
+  await clearSupabaseSessionCookies();
   return jsonOk({ ok: true });
 }

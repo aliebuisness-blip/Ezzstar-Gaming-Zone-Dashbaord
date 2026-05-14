@@ -1,101 +1,49 @@
-import crypto from "node:crypto";
-import { cookies } from "next/headers";
-import { Prisma, UserRole, ZoneStatus } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { audit, hashPassword, publicUser, signAuthToken } from "@/lib/server-auth";
+import { createSupabaseAuthUser, publicProfile, setSupabaseSessionCookies, signInWithPassword, upsertProfile } from "@/lib/supabase/web";
 
 const SignupSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters.").max(80),
   username: z.string().trim().min(3, "Username must be at least 3 characters.").max(32).regex(/^[a-zA-Z0-9_-]+$/, "Username can only use letters, numbers, underscores, and dashes."),
   email: z.string().trim().email("Enter a valid email address."),
   password: z.string().min(8, "Password must be at least 8 characters.").max(128),
-  role: z.enum(["player", "zone_owner"]).default("player"),
-  phone: z.string().trim().max(32).optional(),
-  zoneName: z.string().trim().min(2).max(80).optional(),
-  city: z.string().trim().min(2).max(80).optional()
+  role: z.enum(["player", "zone_owner"]).default("player")
 });
 
 export async function POST(request: Request) {
   try {
-    await ensureDatabaseConnection();
     const parsed = SignupSchema.safeParse(await request.json());
 
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
-      return Response.json(
-        {
-          error: firstIssue?.message ?? "Please check your signup details.",
-          details: parsed.error.flatten()
-        },
-        { status: 400 }
-      );
+      return Response.json({ error: firstIssue?.message ?? "Please check your signup details.", details: parsed.error.flatten() }, { status: 400 });
     }
 
     const input = parsed.data;
-    const normalizedEmail = input.email.toLowerCase().trim();
+    const email = input.email.toLowerCase().trim();
     const username = input.username.toLowerCase().trim();
-    const existing = await prisma.user.findFirst({
-      where: { OR: [{ email: normalizedEmail }, { username }] }
+    const role = input.role;
+    const authUser = await createSupabaseAuthUser({
+      email,
+      password: input.password,
+      name: input.name.trim(),
+      username,
+      role
     });
-
-    if (existing) {
-      return Response.json({ error: "Email or username is already registered" }, { status: 409 });
-    }
-
-    const verificationToken = crypto.randomBytes(24).toString("hex");
-    const passwordHash = await hashPassword(input.password);
-    const { user, zone } = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          name: input.name.trim(),
-          username,
-          email: normalizedEmail,
-          password: passwordHash,
-          role: input.role as UserRole,
-          spica_balance: input.role === "player" ? 1000 : 0,
-          emailVerified: false,
-          verificationToken,
-          membership: input.role === "player" ? "Starter" : "Zone Operator"
-        }
-      });
-      const zone =
-        input.role === "zone_owner"
-          ? await tx.zone.create({
-              data: {
-                name: input.zoneName?.trim() ?? `${input.name.trim()}'s Arena`,
-                city: input.city?.trim() ?? "Lahore",
-                ownerId: user.id,
-                status: ZoneStatus.pending,
-                pricing: { standard: 100, premium: 150 } as Prisma.InputJsonObject,
-                branding: { tagline: "Pending Ezzstar approval" } as Prisma.InputJsonObject
-              }
-            })
-          : null;
-
-      return { user, zone };
+    const profile = await upsertProfile({
+      id: authUser.id,
+      email,
+      name: input.name.trim(),
+      username,
+      role,
+      spica_balance: role === "player" ? 1000 : 0
     });
-    const token = signAuthToken({ id: user.id, email: user.email, role: user.role, username: user.username });
-    const cookieStore = await cookies();
+    const session = await signInWithPassword(email, input.password);
 
-    const isHttps = new URL(request.url).protocol === "https:";
-
-    cookieStore.set("spica_token", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: process.env.NODE_ENV === "production" && isHttps
-    });
-
-    await audit("signup", user.id, { role: user.role, verificationToken, zoneId: zone?.id });
+    await setSupabaseSessionCookies(session, request.url);
 
     return jsonOk({
-      token,
-      verificationToken,
-      verificationUrl: `/api/auth/verify-email?token=${verificationToken}`,
-      zone,
-      user: publicUser(user)
+      user: publicProfile(profile)
     });
   } catch (error) {
     return jsonError(error);

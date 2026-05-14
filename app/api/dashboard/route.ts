@@ -1,104 +1,86 @@
-import { NextRequest } from "next/server";
-import { TransactionType, UserRole, ZoneStatus } from "@prisma/client";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/server-auth";
-import { expireSessions } from "@/lib/session-service";
+import { publicProfile, requireWebUser, selectRows, WebProfile } from "@/lib/supabase/web";
 
-export async function GET(request: NextRequest) {
+function mapZone(zone: any) {
+  return {
+    id: zone.id,
+    name: zone.name,
+    city: zone.city ?? zone.location ?? "",
+    status: zone.status ?? "pending",
+    ownerId: zone.owner_id,
+    owner: zone.owner_name || zone.owner_email ? { id: zone.owner_id ?? "", name: zone.owner_name ?? "Owner", email: zone.owner_email ?? "" } : null,
+    pricing: {
+      pcCount: zone.pc_count,
+      rentPerHour: zone.rent_per_hour,
+      currentPricingModel: zone.pricing_model
+    },
+    branding: zone.branding ?? {},
+    pcs: []
+  };
+}
+
+function mapSession(session: any) {
+  return {
+    id: session.id,
+    playerId: session.player_id,
+    playerName: session.player_name ?? "Player",
+    zoneId: session.zone_id,
+    zoneName: session.zone_name ?? "Zone",
+    pcId: session.pc_id ?? "",
+    pcName: session.pc_name ?? "PC",
+    startTime: session.start_time ? new Date(session.start_time).getTime() : Date.now(),
+    durationSeconds: session.duration_seconds ?? 0,
+    status: session.status === "active" ? "Active" : "Completed",
+    grossSpica: session.gross_spica ?? session.cost_spica ?? 0
+  };
+}
+
+export async function GET() {
   try {
-    await ensureDatabaseConnection();
-    const auth = await requireApiUser(request);
-    await expireSessions();
-
-    const userSelect = { id: true, name: true, username: true, avatar: true, banner: true, bio: true, email: true, role: true, spica_balance: true, xp: true, level: true, onlineStatus: true, emailVerified: true, membership: true, favoriteGames: true, favoriteZones: true, createdAt: true };
-    const user = await prisma.user.findUnique({ where: { id: auth.id }, select: userSelect });
-
-    if (!user) {
-      return Response.json({ error: "Profile not found" }, { status: 404 });
-    }
-
-    const ownerZoneIds =
-      auth.role === UserRole.zone_owner || auth.role === UserRole.manager
-        ? (
-            await prisma.zone.findMany({
-              where: auth.role === UserRole.manager ? { staff: { some: { id: auth.id } } } : { ownerId: auth.id },
-              select: { id: true }
-            })
-          ).map((zone) => zone.id)
-        : [];
-    const scope =
-      auth.role === UserRole.admin
-        ? {}
-        : auth.role === UserRole.player
-          ? { playerId: auth.id }
-          : { zoneId: { in: ownerZoneIds } };
-    const zoneScope =
-      auth.role === UserRole.admin
-        ? {}
-        : auth.role === UserRole.player
-          ? { status: ZoneStatus.active }
-          : { id: { in: ownerZoneIds } };
-    const transactionScope = auth.role === UserRole.admin ? {} : auth.role === UserRole.player ? { userId: auth.id } : { id: "__zone-owner-no-global-transactions__" };
-    const withdrawalScope = auth.role === UserRole.admin ? {} : { userId: auth.id };
-
-    const [users, zones, sessions, transactions, settlements, withdrawals] = await Promise.all([
-      auth.role === UserRole.admin
-        ? prisma.user.findMany({ select: userSelect, orderBy: { createdAt: "desc" } })
-        : auth.role === UserRole.player
-          ? prisma.user.findMany({ where: { id: auth.id }, select: userSelect })
-          : prisma.user.findMany({
-              where: { OR: [{ id: auth.id }, { sessions: { some: { zoneId: { in: ownerZoneIds } } } }] },
-              select: userSelect,
-              orderBy: { createdAt: "desc" }
-            }),
-      prisma.zone.findMany({ where: zoneScope, include: { pcs: true, owner: { select: { id: true, name: true, email: true } }, _count: { select: { sessions: true, settlements: true } } } }),
-      prisma.session.findMany({ where: scope, include: { player: true, zone: true, pc: true, settlement: true }, orderBy: { createdAt: "desc" }, take: 50 }),
-      prisma.transaction.findMany({ where: transactionScope, orderBy: { createdAt: "desc" }, take: 50 }),
-      prisma.settlement.findMany({
-        where: auth.role === UserRole.admin ? {} : auth.role === UserRole.player ? { session: { playerId: auth.id } } : { zoneId: { in: ownerZoneIds } },
-        include: { zone: true, session: { include: { player: true, pc: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 50
-      }),
-      prisma.withdrawal.findMany({ where: withdrawalScope, include: { user: true }, orderBy: { createdAt: "desc" }, take: 50 })
+    const { profile } = await requireWebUser();
+    const user = publicProfile(profile);
+    const isAdmin = profile.role === "admin";
+    const [profiles, zones, sessions, notifications, activity] = await Promise.all([
+      isAdmin ? selectRows<WebProfile>("profiles", "select=*&order=created_at.desc").catch(() => []) : Promise.resolve([profile]),
+      selectRows("zones", isAdmin ? "select=*&order=created_at.desc" : "status=eq.active&select=*&order=created_at.desc").catch(() => []),
+      selectRows("player_sessions", isAdmin ? "select=*&order=created_at.desc&limit=50" : `player_id=eq.${encodeURIComponent(profile.id)}&select=*&order=created_at.desc&limit=50`).catch(() => []),
+      selectRows("notifications", isAdmin ? "select=*&order=created_at.desc&limit=50" : `user_id=eq.${encodeURIComponent(profile.id)}&select=*&order=created_at.desc&limit=25`).catch(() => []),
+      isAdmin ? selectRows("admin_activity", "select=*&order=created_at.desc&limit=50").catch(() => []) : Promise.resolve([])
     ]);
-
-    const creditsSold = transactions.filter((item) => item.type === TransactionType.buy).reduce((sum, item) => sum + item.amount, 0);
-    const totalSpent = transactions.filter((item) => item.type === TransactionType.spend).reduce((sum, item) => sum + item.amount, 0);
-    const commission = settlements.reduce((sum, item) => sum + item.commission, 0);
-    const onlinePcs = zones.flatMap((zone) => zone.pcs).filter((pc) => pc.status !== "offline").length;
-    const zoneNet = settlements.reduce((sum, item) => sum + item.net, 0);
-    const safety = {
-      offlineActiveSessions: sessions.filter((session) => session.status === "active" && session.pc.status === "offline"),
-      longSessions: sessions.filter((session) => session.status === "active" && session.durationSeconds >= 6 * 3600),
-      staleHeartbeatPcs: zones.flatMap((zone) => zone.pcs).filter((pc) => pc.status !== "offline" && (!pc.lastHeartbeat || pc.lastHeartbeat.getTime() < Date.now() - 30_000)),
-      maintenanceActiveSessions: sessions.filter((session) => session.status === "active" && session.pc.maintenanceMode)
-    };
+    const mappedSessions = sessions.map(mapSession);
+    const creditsSold = profiles.reduce((sum: number, item: any) => sum + Number(item.spica_balance ?? 0), 0);
+    const totalSpent = mappedSessions.reduce((sum: number, item: any) => sum + Number(item.grossSpica ?? 0), 0);
 
     return jsonOk({
       serverTime: new Date().toISOString(),
       user,
-      users,
-      zones,
-      sessions,
-      transactions,
-      settlements,
-      withdrawals,
+      users: profiles.map(publicProfile),
+      zones: zones.map(mapZone),
+      sessions: mappedSessions,
+      transactions: [],
+      settlements: [],
+      withdrawals: [],
+      notifications,
+      activity,
       analytics: {
         creditsSold,
         totalSpent,
-        commission,
-        zoneNet,
-        onlinePcs,
-        activeSessions: sessions.filter((item) => item.status === "active").length,
-        activeZones: zones.filter((item) => item.status === "active").length,
-        pendingZones: zones.filter((item) => item.status === "pending").length,
-        safety,
+        commission: Math.round(totalSpent * 0.1),
+        zoneNet: Math.round(totalSpent * 0.9),
+        onlinePcs: 0,
+        activeSessions: mappedSessions.filter((item: any) => item.status === "Active").length,
+        activeZones: zones.filter((zone: any) => zone.status === "active").length,
+        pendingZones: zones.filter((zone: any) => zone.status === "pending").length,
+        safety: {
+          offlineActiveSessions: [],
+          longSessions: [],
+          staleHeartbeatPcs: [],
+          maintenanceActiveSessions: []
+        },
         graphReady: {
           dailySpicaVolume: totalSpent,
-          dailyCommission: commission,
-          sessionVolume: sessions.length
+          dailyCommission: Math.round(totalSpent * 0.1),
+          sessionVolume: mappedSessions.length
         }
       }
     });

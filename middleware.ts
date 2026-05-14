@@ -13,7 +13,7 @@ const protectedPages = [
   { prefix: "/admin", role: "admin" }
 ] as const;
 
-function decodeJwtPayload(token?: string): { role?: keyof typeof rolePath } | null {
+function decodeJwtPayload(token?: string): { app_metadata?: { role?: keyof typeof rolePath }; user_metadata?: { role?: keyof typeof rolePath }; role?: keyof typeof rolePath } | null {
   if (!token) {
     return null;
   }
@@ -34,22 +34,23 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const payload = decodeJwtPayload(request.cookies.get("spica_token")?.value);
+  const payload = decodeJwtPayload(request.cookies.get("sb_access_token")?.value);
+  const role = payload?.app_metadata?.role ?? payload?.user_metadata?.role ?? payload?.role;
 
-  if (!payload?.role) {
+  if (!role) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (payload.role === "admin") {
+  if (role === "admin") {
     return NextResponse.next();
   }
 
-  if (match.prefix === "/zone" && payload.role === "manager") {
+  if (match.prefix === "/zone" && role === "manager") {
     return NextResponse.next();
   }
 
-  if (payload.role !== match.role) {
-    return NextResponse.redirect(new URL(rolePath[payload.role] ?? "/login", request.url));
+  if (role !== match.role) {
+    return NextResponse.redirect(new URL(rolePath[role] ?? "/login", request.url));
   }
 
   return NextResponse.next();

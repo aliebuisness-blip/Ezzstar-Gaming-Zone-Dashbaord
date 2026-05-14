@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server";
-import { Prisma, UserRole } from "@prisma/client";
 import { jsonError, jsonOk } from "@/lib/api";
-import { ensureDatabaseConnection, prisma } from "@/lib/prisma";
-import { requireApiUser } from "@/lib/server-auth";
+import { patchRows, requireWebUser } from "@/lib/supabase/web";
 import { SupabaseBucket, uploadToSupabaseStorage } from "@/lib/supabase/server";
 
 type UploadPurpose = "player-avatar" | "player-banner" | "zone-logo" | "zone-banner" | "announcement-media" | "listing-request-attachment";
@@ -36,24 +34,8 @@ function validateFile(file: FormDataEntryValue | null, config: { maxBytes: numbe
   return file;
 }
 
-async function requireZoneAccess(request: NextRequest, zoneId: string) {
-  const auth = await requireApiUser(request, [UserRole.zone_owner, UserRole.admin]);
-  const zone = await prisma.zone.findUnique({ where: { id: zoneId } });
-
-  if (!zone) {
-    throw new Response(JSON.stringify({ error: "Zone not found." }), { status: 404 });
-  }
-
-  if (auth.role !== UserRole.admin && zone.ownerId !== auth.id) {
-    throw new Response(JSON.stringify({ error: "Forbidden." }), { status: 403 });
-  }
-
-  return { auth, zone };
-}
-
 export async function POST(request: NextRequest) {
   try {
-    await ensureDatabaseConnection();
     const formData = await request.formData();
     const purposeValue = formData.get("purpose");
 
@@ -66,33 +48,26 @@ export async function POST(request: NextRequest) {
     const zoneId = typeof formData.get("zoneId") === "string" ? String(formData.get("zoneId")) : undefined;
 
     if (purposeValue.startsWith("player-")) {
-      const auth = await requireApiUser(request, [UserRole.player, UserRole.zone_owner, UserRole.manager, UserRole.admin]);
-      const result = await uploadToSupabaseStorage({ bucket: config.bucket, file, folder: `players/${auth.id}` });
-      const data = purposeValue === "player-avatar" ? { avatar: result.publicUrl } : { banner: result.publicUrl };
-      await prisma.user.update({ where: { id: auth.id }, data });
-      return jsonOk({ ...result, storedOn: "user" });
+      const { profile } = await requireWebUser(["player", "zone_owner", "manager", "admin"]);
+      const result = await uploadToSupabaseStorage({ bucket: config.bucket, file, folder: `players/${profile.id}` });
+      await patchRows("profiles", `id=eq.${encodeURIComponent(profile.id)}`, purposeValue === "player-avatar" ? { avatar_url: result.publicUrl } : { banner_url: result.publicUrl });
+      return jsonOk({ ...result, storedOn: "profile" });
     }
 
     if (purposeValue === "zone-logo" || purposeValue === "zone-banner") {
+      const { profile } = await requireWebUser(["zone_owner", "manager", "admin"]);
+
       if (!zoneId) {
         return Response.json({ error: "zoneId is required for zone media uploads." }, { status: 400 });
       }
 
-      const { zone } = await requireZoneAccess(request, zoneId);
-      const result = await uploadToSupabaseStorage({ bucket: config.bucket, file, folder: `zones/${zone.id}` });
-      const branding = { ...((zone.branding as Record<string, unknown>) ?? {}) };
-      branding[purposeValue === "zone-logo" ? "logoUrl" : "bannerUrl"] = result.publicUrl;
-      await prisma.zone.update({ where: { id: zone.id }, data: { branding: branding as Prisma.InputJsonObject } });
+      const result = await uploadToSupabaseStorage({ bucket: config.bucket, file, folder: `zones/${zoneId}` });
+      await patchRows("zones", `id=eq.${encodeURIComponent(zoneId)}`, purposeValue === "zone-logo" ? { logo_url: result.publicUrl, updated_by: profile.id } : { banner_url: result.publicUrl, updated_by: profile.id });
       return jsonOk({ ...result, storedOn: "zone" });
     }
 
     if (purposeValue === "announcement-media") {
-      if (zoneId) {
-        await requireZoneAccess(request, zoneId);
-      } else {
-        await requireApiUser(request, [UserRole.admin]);
-      }
-
+      await requireWebUser(zoneId ? ["zone_owner", "manager", "admin"] : ["admin"]);
       const result = await uploadToSupabaseStorage({ bucket: config.bucket, file, folder: zoneId ? `zones/${zoneId}/announcements` : "admin/announcements" });
       return jsonOk({ ...result, storedOn: "announcement" });
     }
@@ -103,4 +78,3 @@ export async function POST(request: NextRequest) {
     return jsonError(error);
   }
 }
-
