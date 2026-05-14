@@ -27,7 +27,7 @@ import { PlayerActivity } from "@/components/dashboard/player/PlayerActivity";
 import { PlayerZones } from "@/components/dashboard/player/PlayerZones";
 import { PlayerUpdates } from "@/components/dashboard/player/PlayerUpdates";
 import { PlayerProfile } from "@/components/dashboard/player/PlayerProfile";
-import { ZoneDashboard } from "@/components/dashboard/zone/ZoneDashboard";
+import { ZoneOSWorkspace } from "@/components/dashboard/zone/ZoneOSWorkspace";
 import { ZoneHome } from "@/components/dashboard/zone/ZoneHome";
 import { ZonePCs } from "@/components/dashboard/zone/ZonePCs";
 import { ZoneCustomers } from "@/components/dashboard/zone/ZoneCustomers";
@@ -1969,7 +1969,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
   function renderZoneDashboard() {
     if (!zones.length) {
       return (
-        <ZoneDashboard
+        <ZoneOSWorkspace
           activeView={activeView}
           customers={null}
           emptyState={(
@@ -2136,7 +2136,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
 
     return (
-      <ZoneDashboard
+      <ZoneOSWorkspace
         activeView={activeView}
         customers={renderZoneCustomersPanel()}
         home={homePanel}

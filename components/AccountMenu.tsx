@@ -27,17 +27,30 @@ const profileRoute: Record<AuthUser["role"], string> = {
   admin: "/admin/settings"
 };
 
+function getZoneOsUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_ZONE_OS_URL;
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    return "/zone";
+  }
+
+  return null;
+}
+
 function dashboardLinks(role: AuthUser["role"]) {
   if (role === "admin") {
     return [
       { label: "Ezzstar Control Center", href: "/admin" },
-      { label: "SPICA Zone OS", href: "/zone" },
       { label: "SPICA Player App", href: "/player" }
     ];
   }
 
   if (role === "zone_owner" || role === "manager") {
-    return [{ label: "SPICA Zone OS", href: "/zone" }];
+    return [];
   }
 
   return [{ label: "SPICA Player App", href: "/player" }];
@@ -117,6 +130,7 @@ export function AccountMenu() {
 
   const displayName = user?.username || user?.name || user?.email || "Account";
   const links = user ? dashboardLinks(user.role) : [];
+  const zoneOsUrl = user && (user.role === "zone_owner" || user.role === "manager" || user.role === "admin") ? getZoneOsUrl() : null;
 
   return (
     <div className="relative" ref={menuRef}>
@@ -161,6 +175,12 @@ export function AccountMenu() {
                 {item.label}
               </Link>
             ))}
+            {zoneOsUrl ? (
+              <Link className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-slate-300 transition hover:bg-white/[0.065] hover:text-white" href={zoneOsUrl} role="menuitem">
+                <LayoutDashboard className="h-4 w-4 text-cyan-200" />
+                Open SPICA Zone OS
+              </Link>
+            ) : null}
 
             {isDevelopment ? (
               <button
