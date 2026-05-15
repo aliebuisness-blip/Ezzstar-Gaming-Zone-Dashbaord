@@ -21,6 +21,7 @@ export async function GET() {
     ]);
 
     return jsonOk({
+      ok: true,
       user: publicProfile(profile),
       profile: {
         totalHoursPlayed: 0,
@@ -34,6 +35,10 @@ export async function GET() {
       }
     });
   } catch (error) {
+    if (error instanceof Response && error.status === 401) {
+      return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     return jsonError(error);
   }
 }

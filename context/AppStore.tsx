@@ -116,6 +116,10 @@ function resolveActorName(state: SpicaMockState, actorId: string, actorType: Act
   return state.zones.find((zone) => actorId.includes(zone.id))?.name ?? state.zones[0]?.name ?? "Zone Owner";
 }
 
+function asArray<T = any>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SpicaMockState>(() => createEmptySpicaState());
   const [dashboardApiStatus, setDashboardApiStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
@@ -128,6 +132,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         typeof window !== "undefined" &&
         (PUBLIC_AUTH_PATHS.includes(window.location.pathname) || !DASHBOARD_PATH_PREFIXES.some((prefix) => window.location.pathname.startsWith(prefix)))
       ) {
+        setDashboardApiStatus("idle");
         return;
       }
 
@@ -137,59 +142,97 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const timeout = window.setTimeout(() => controller.abort(), 12_000);
 
       try {
+        const meResponse = await fetch("/api/auth/me", { credentials: "include", signal: controller.signal });
+        const mePayload = await meResponse.json().catch(() => ({}));
+
+        if (process.env.NODE_ENV === "development") {
+          console.log("/api/auth/me status", meResponse.status);
+        }
+
+        if (!meResponse.ok || mePayload.ok === false || !mePayload.user) {
+          setDashboardApiStatus("error");
+          setDashboardApiError(mePayload.error ?? (meResponse.status === 401 ? "Your session expired. Please sign in again." : "Could not sync your profile."));
+          return;
+        }
+
         const response = await fetch("/api/dashboard", { credentials: "include", signal: controller.signal });
         const payload = await response.json().catch(() => ({}));
 
-        if (!response.ok) {
+        if (process.env.NODE_ENV === "development") {
+          console.log("/api/dashboard status", response.status);
+          console.log("Dashboard payload keys", Object.keys(payload ?? {}));
+        }
+
+        const payloadUser = payload.currentUser ?? payload.user ?? mePayload.user;
+
+        if (!response.ok || payload.ok === false) {
           setDashboardApiStatus("error");
           setDashboardApiError(payload.error ?? (response.status === 401 ? "Your session expired. Please sign in again." : "Could not sync your profile."));
           return;
         }
 
+        if (!payloadUser?.id) {
+          setDashboardApiStatus("error");
+          setDashboardApiError("Could not sync your profile.");
+          return;
+        }
+
         setServerTimeOffsetMs(payload.serverTime ? new Date(payload.serverTime).getTime() - Date.now() : 0);
-        setCurrentRole(payload.user?.role ?? null);
+        setCurrentRole(payloadUser.role ?? null);
 
         setState((current) => {
-          const sessions = payload.sessions.map((session: any) => ({
-            id: session.id,
-            playerId: session.playerId,
-            playerName: session.playerName ?? session.player?.name ?? "Player",
-            zoneId: session.zoneId,
-            zoneName: session.zoneName ?? session.zone?.name ?? "Zone",
-            pcId: session.pcId,
-            pcName: session.pcName ?? session.pc?.name ?? "PC",
-            pcType: (session.pcName ?? session.pc?.name)?.endsWith("07") || (session.pcName ?? session.pc?.name)?.endsWith("08") ? "Premium" : "Standard",
-            startTime: new Date(session.startTime).getTime(),
-            durationSeconds: session.durationSeconds,
-            ratePerHour: (session.pcName ?? session.pc?.name)?.endsWith("07") || (session.pcName ?? session.pc?.name)?.endsWith("08") ? 150 : 100,
-            grossSpica: session.grossSpica ?? session.gross ?? 0,
-            status: session.status === "active" || session.status === "Active" ? "Active" : "Completed",
-            endedAt: session.completedAt ? new Date(session.completedAt).getTime() : undefined
-          }));
+          const payloadSessions = asArray(payload.sessions);
+          const payloadUsers = asArray(payload.users).length ? asArray(payload.users) : [payloadUser];
+          const payloadZones = asArray(payload.zones);
+          const payloadTransactions = asArray(payload.transactions);
+          const payloadSettlements = asArray(payload.settlements);
+          const payloadWithdrawals = asArray(payload.withdrawals);
+          const payloadAnalytics = payload.analytics ?? {};
+          const sessions = payloadSessions.map((session: any) => {
+            const pcName = session.pcName ?? session.pc?.name ?? "PC";
+            const pcType = pcName.endsWith("07") || pcName.endsWith("08") ? "Premium" as const : "Standard" as const;
 
-          const currentUser = payload.user
+            return {
+              id: session.id,
+              playerId: session.playerId,
+              playerName: session.playerName ?? session.player?.name ?? "Player",
+              zoneId: session.zoneId,
+              zoneName: session.zoneName ?? session.zone?.name ?? "Zone",
+              pcId: session.pcId,
+              pcName,
+              pcType,
+              startTime: new Date(session.startTime).getTime(),
+              durationSeconds: session.durationSeconds,
+              ratePerHour: pcType === "Premium" ? 150 : 100,
+              grossSpica: session.grossSpica ?? session.gross ?? 0,
+              status: session.status === "active" || session.status === "Active" ? "Active" as const : "Completed" as const,
+              endedAt: session.completedAt ? new Date(session.completedAt).getTime() : undefined
+            };
+          });
+
+          const currentUser = payloadUser
             ? {
-                id: payload.user.id,
-                name: payload.user.name,
-                username: payload.user.username,
-                avatar: payload.user.avatar,
-                banner: payload.user.banner,
-                bio: payload.user.bio,
-                email: payload.user.email,
-                membership: payload.user.membership,
-                favoriteGames: payload.user.favoriteGames,
-                favoriteZones: payload.user.favoriteZones,
-                xp: payload.user.xp,
-                level: payload.user.level,
-                onlineStatus: payload.user.onlineStatus,
-                balance: payload.user.spica_balance
+                id: payloadUser.id,
+                name: payloadUser.name,
+                username: payloadUser.username,
+                avatar: payloadUser.avatar,
+                banner: payloadUser.banner,
+                bio: payloadUser.bio,
+                email: payloadUser.email,
+                membership: payloadUser.membership,
+                favoriteGames: payloadUser.favoriteGames,
+                favoriteZones: payloadUser.favoriteZones,
+                xp: payloadUser.xp,
+                level: payloadUser.level,
+                onlineStatus: payloadUser.onlineStatus,
+                balance: payloadUser.spica_balance
               }
             : null;
 
           return {
             ...current,
             currentUser,
-            players: payload.users
+            players: payloadUsers
               .filter((user: any) => user.role === "player")
               .map((user: any) => ({
                 id: user.id,
@@ -207,7 +250,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                 onlineStatus: user.onlineStatus,
                 balance: user.spica_balance
               })),
-            zones: payload.zones.map((zone: any) => ({
+            zones: payloadZones.map((zone: any) => ({
               id: zone.id,
               name: zone.name,
               city: zone.city,
@@ -217,11 +260,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                     id: zone.owner.id,
                     name: zone.owner.name,
                     email: zone.owner.email
-                  }
+                }
                 : undefined,
               pricing: zone.pricing ?? {},
               branding: zone.branding ?? {},
-              pcs: zone.pcs.map((pc: any) => ({
+              pcs: asArray(zone.pcs).map((pc: any) => ({
                 ...(() => {
                   const activeSession = sessions.find((session: any) => session.pcId === pc.id && session.status === "Active");
                   return {
@@ -244,7 +287,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               }))
             })),
             sessions,
-            transactions: payload.transactions.map((transaction: any) => ({
+            transactions: payloadTransactions.map((transaction: any) => ({
               id: transaction.id,
               type:
                 transaction.type === "buy"
@@ -253,13 +296,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                     ? "session_charge"
                     : transaction.type === "reward"
                       ? "time_extension"
-                      : "credit_purchase",
+                  : "credit_purchase",
               actorId: transaction.userId,
-              actorName: payload.users.find((user: any) => user.id === transaction.userId)?.name ?? "User",
+              actorName: payloadUsers.find((user: any) => user.id === transaction.userId)?.name ?? "User",
               amount: transaction.amount,
               createdAt: new Date(transaction.createdAt).getTime()
             })),
-            settlements: payload.settlements.map((settlement: any) => ({
+            settlements: payloadSettlements.map((settlement: any) => ({
               id: settlement.id,
               transactionId: settlement.sessionId ?? settlement.id,
               player: settlement.session?.player?.name ?? "Backend session",
@@ -272,7 +315,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               zoneNetAmount: settlement.net,
               status: settlement.status === "approved" ? "Approved" : settlement.status === "paid" ? "Paid" : "Pending"
             })),
-            withdrawals: payload.withdrawals.map((withdrawal: any) => ({
+            withdrawals: payloadWithdrawals.map((withdrawal: any) => ({
               id: withdrawal.id,
               userId: withdrawal.userId,
               userName: withdrawal.user?.name ?? "User",
@@ -282,9 +325,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               netAmount: withdrawal.amount - withdrawal.fee,
               status: withdrawal.status === "approved" ? "Approved" : withdrawal.status === "rejected" ? "Rejected" : "Pending"
             })),
-            creditsSold: payload.analytics.creditsSold,
+            creditsSold: Number(payloadAnalytics.creditsSold ?? 0),
             debug: current.debug,
-            activity: payload.user?.role === "player" ? current.activity : [
+            activity: payloadUser.role === "player" ? current.activity : [
               createActivity("Dashboard synced", "Dashboard data refreshed."),
               ...current.activity
             ].slice(0, 40)

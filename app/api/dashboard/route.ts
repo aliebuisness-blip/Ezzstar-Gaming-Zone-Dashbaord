@@ -52,8 +52,10 @@ export async function GET() {
     const totalSpent = mappedSessions.reduce((sum: number, item: any) => sum + Number(item.grossSpica ?? 0), 0);
 
     return jsonOk({
+      ok: true,
       serverTime: new Date().toISOString(),
       user,
+      currentUser: user,
       users: profiles.map(publicProfile),
       zones: zones.map(mapZone),
       sessions: mappedSessions,
@@ -85,6 +87,10 @@ export async function GET() {
       }
     });
   } catch (error) {
+    if (error instanceof Response && error.status === 401) {
+      return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     return jsonError(error);
   }
 }
