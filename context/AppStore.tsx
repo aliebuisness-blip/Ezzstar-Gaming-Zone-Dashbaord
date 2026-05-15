@@ -1,10 +1,12 @@
 "use client";
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { io } from "socket.io-client";
 import {
   ActivityItem,
   GamingPc,
+  Player,
   Session,
   Settlement,
   SpicaMockState,
@@ -22,6 +24,9 @@ type ActorType = WithdrawalType;
 
 type AppStoreValue = SpicaMockState & {
   pcs: GamingPc[];
+  authStatus: "idle" | "loading" | "ok" | "error";
+  dashboardDataStatus: "idle" | "loading" | "ok" | "error";
+  dashboardDataError: string | null;
   dashboardApiStatus: "idle" | "loading" | "ok" | "error";
   dashboardApiError: string | null;
   serverTimeOffsetMs: number;
@@ -40,6 +45,7 @@ type AppStoreValue = SpicaMockState & {
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 const PUBLIC_AUTH_PATHS = ["/login", "/signup", "/forgot-password", "/list-your-zone"];
 const DASHBOARD_PATH_PREFIXES = ["/player", "/admin", "/zone"];
+const LAST_LOGIN_USER_KEY = "spica:last-login-user";
 
 function shouldConnectDashboardRealtime(configuredRealtimeUrl?: string) {
   if (typeof window === "undefined" || !configuredRealtimeUrl) {
@@ -120,8 +126,56 @@ function asArray<T = any>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
 }
 
+function mapDashboardUser(user: any): Player {
+  return {
+    id: user.id,
+    name: user.name ?? user.username ?? user.email ?? "Player",
+    username: user.username ?? "",
+    avatar: user.avatar ?? user.avatar_url ?? "",
+    banner: user.banner ?? user.banner_url ?? "",
+    bio: user.bio ?? "",
+    email: user.email ?? "",
+    membership: user.membership ?? (user.role === "player" ? "Starter" : "Operator"),
+    favoriteGames: asArray<string>(user.favoriteGames),
+    favoriteZones: asArray<string>(user.favoriteZones),
+    xp: Number(user.xp ?? 0),
+    level: Number(user.level ?? 1),
+    onlineStatus: user.onlineStatus ?? "online",
+    balance: Number(user.spica_balance ?? user.balance ?? 0)
+  };
+}
+
+function readLastLoginUser() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(LAST_LOGIN_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastLoginUser(user: any) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(LAST_LOGIN_USER_KEY, JSON.stringify(user));
+  } catch {
+    // Ignore storage failures; the auth cookie remains authoritative.
+  }
+}
+
 export function AppStoreProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [state, setState] = useState<SpicaMockState>(() => createEmptySpicaState());
+  const [authStatus, setAuthStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [dashboardDataStatus, setDashboardDataStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [dashboardDataError, setDashboardDataError] = useState<string | null>(null);
   const [dashboardApiStatus, setDashboardApiStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [dashboardApiError, setDashboardApiError] = useState<string | null>(null);
   const [serverTimeOffsetMs, setServerTimeOffsetMs] = useState(0);
@@ -132,17 +186,40 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         typeof window !== "undefined" &&
         (PUBLIC_AUTH_PATHS.includes(window.location.pathname) || !DASHBOARD_PATH_PREFIXES.some((prefix) => window.location.pathname.startsWith(prefix)))
       ) {
+        setAuthStatus("idle");
+        setDashboardDataStatus("idle");
         setDashboardApiStatus("idle");
         return;
       }
 
-      setDashboardApiStatus("loading");
+      const cachedUser = readLastLoginUser();
+      let hasBootstrappedUser = Boolean(cachedUser?.id);
+
+      if (cachedUser?.id) {
+        setState((current) => ({
+          ...current,
+          currentUser: current.currentUser?.id === cachedUser.id ? current.currentUser : mapDashboardUser(cachedUser),
+          players: cachedUser.role === "player" && !current.players.some((player) => player.id === cachedUser.id)
+            ? [mapDashboardUser(cachedUser), ...current.players]
+            : current.players
+        }));
+        hasBootstrappedUser = true;
+        setCurrentRole(cachedUser.role ?? null);
+        setAuthStatus("ok");
+        setDashboardApiStatus("ok");
+      } else {
+        setAuthStatus("loading");
+        setDashboardApiStatus("loading");
+      }
+
       setDashboardApiError(null);
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 12_000);
+      setDashboardDataError(null);
 
       try {
-        const meResponse = await fetch("/api/auth/me", { credentials: "include", signal: controller.signal });
+        const authController = new AbortController();
+        const authTimeout = window.setTimeout(() => authController.abort(), 8_000);
+        const meResponse = await fetch("/api/auth/me", { credentials: "include", signal: authController.signal });
+        window.clearTimeout(authTimeout);
         const mePayload = await meResponse.json().catch(() => ({}));
 
         if (process.env.NODE_ENV === "development") {
@@ -150,12 +227,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
 
         if (!meResponse.ok || mePayload.ok === false || !mePayload.user) {
+          setAuthStatus("error");
           setDashboardApiStatus("error");
           setDashboardApiError(mePayload.error ?? (meResponse.status === 401 ? "Your session expired. Please sign in again." : "Could not sync your profile."));
           return;
         }
 
-        const response = await fetch("/api/dashboard", { credentials: "include", signal: controller.signal });
+        writeLastLoginUser(mePayload.user);
+        setCurrentRole(mePayload.user.role ?? null);
+        setState((current) => ({
+          ...current,
+          currentUser: mapDashboardUser(mePayload.user),
+          players: mePayload.user.role === "player" && !current.players.some((player) => player.id === mePayload.user.id)
+            ? [mapDashboardUser(mePayload.user), ...current.players]
+            : current.players
+        }));
+        hasBootstrappedUser = true;
+        setAuthStatus("ok");
+        setDashboardApiStatus("ok");
+        setDashboardDataStatus("loading");
+
+        const dashboardController = new AbortController();
+        const dashboardTimeout = window.setTimeout(() => dashboardController.abort(), 12_000);
+        const response = await fetch("/api/dashboard", { credentials: "include", signal: dashboardController.signal });
+        window.clearTimeout(dashboardTimeout);
         const payload = await response.json().catch(() => ({}));
 
         if (process.env.NODE_ENV === "development") {
@@ -166,14 +261,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const payloadUser = payload.currentUser ?? payload.user ?? mePayload.user;
 
         if (!response.ok || payload.ok === false) {
-          setDashboardApiStatus("error");
-          setDashboardApiError(payload.error ?? (response.status === 401 ? "Your session expired. Please sign in again." : "Could not sync your profile."));
+          setDashboardDataStatus("error");
+          setDashboardDataError(payload.error ?? "Some dashboard data could not load. Retry.");
+          setDashboardApiError(payload.error ?? "Some dashboard data could not load. Retry.");
           return;
         }
 
         if (!payloadUser?.id) {
-          setDashboardApiStatus("error");
-          setDashboardApiError("Could not sync your profile.");
+          setDashboardDataStatus("error");
+          setDashboardDataError("Some dashboard data could not load. Retry.");
+          setDashboardApiError("Some dashboard data could not load. Retry.");
           return;
         }
 
@@ -210,24 +307,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             };
           });
 
-          const currentUser = payloadUser
-            ? {
-                id: payloadUser.id,
-                name: payloadUser.name,
-                username: payloadUser.username,
-                avatar: payloadUser.avatar,
-                banner: payloadUser.banner,
-                bio: payloadUser.bio,
-                email: payloadUser.email,
-                membership: payloadUser.membership,
-                favoriteGames: payloadUser.favoriteGames,
-                favoriteZones: payloadUser.favoriteZones,
-                xp: payloadUser.xp,
-                level: payloadUser.level,
-                onlineStatus: payloadUser.onlineStatus,
-                balance: payloadUser.spica_balance
-              }
-            : null;
+          const currentUser = mapDashboardUser(payloadUser);
 
           return {
             ...current,
@@ -333,19 +413,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ].slice(0, 40)
           };
         });
+        setDashboardDataStatus("ok");
         setDashboardApiStatus("ok");
       } catch (error) {
-        setDashboardApiStatus("error");
-        setDashboardApiError(error instanceof DOMException && error.name === "AbortError" ? "Profile sync timed out. Please retry." : "Could not sync your profile.");
+        if (hasBootstrappedUser) {
+          setDashboardDataStatus("error");
+          setDashboardDataError(error instanceof DOMException && error.name === "AbortError" ? "Dashboard details timed out. Retry." : "Some dashboard data could not load. Retry.");
+          setDashboardApiStatus("ok");
+        } else {
+          setAuthStatus("error");
+          setDashboardApiStatus("error");
+          setDashboardApiError(error instanceof DOMException && error.name === "AbortError" ? "Profile sync timed out. Please retry." : "Could not sync your profile.");
+        }
         // Keep production UI empty/loading instead of leaking demo identities.
-      } finally {
-        window.clearTimeout(timeout);
       }
   }, []);
 
   useEffect(() => {
     refreshBackendDashboard();
-  }, [refreshBackendDashboard]);
+  }, [pathname, refreshBackendDashboard]);
 
   useEffect(() => {
     if (PUBLIC_AUTH_PATHS.includes(window.location.pathname)) {
@@ -731,6 +817,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const value: AppStoreValue = {
     ...state,
     pcs,
+    authStatus,
+    dashboardDataStatus,
+    dashboardDataError,
     dashboardApiStatus,
     dashboardApiError,
     serverTimeOffsetMs,

@@ -60,6 +60,12 @@ export default function LoginPage() {
 
       setRedirectTarget(redirectTo);
 
+      try {
+        window.sessionStorage.setItem("spica:last-login-user", JSON.stringify(payload.user));
+      } catch {
+        // Session storage is only a speed hint; cookies remain the source of truth.
+      }
+
       window.setTimeout(() => {
         if (window.location.pathname === "/login") {
           setError("Login successful, but redirect failed. Go to dashboard");

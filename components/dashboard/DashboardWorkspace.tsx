@@ -166,6 +166,8 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     currentUser,
     dashboardApiError,
     dashboardApiStatus,
+    dashboardDataError,
+    dashboardDataStatus,
     debug,
     endSession,
     players,
@@ -2724,6 +2726,16 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
           title={roleTitle[role]}
           unreadCount={unreadNotifications}
         />
+        {dashboardDataStatus === "error" ? (
+          <div className="px-4 pt-4 sm:px-5 md:px-8">
+            <div className="flex flex-col gap-3 rounded-2xl border border-amber-300/20 bg-amber-950/20 px-4 py-3 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+              <span>{dashboardDataError ?? "Some data could not load. Retry."}</span>
+              <button className="rounded-xl border border-amber-200/25 px-3 py-2 text-xs font-semibold text-amber-50 transition hover:border-amber-100/60" onClick={refreshBackendDashboard} type="button">
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <section className="px-4 py-4 sm:px-5 sm:py-6 md:px-8 md:py-8">
           <div className="mb-5 flex flex-col justify-between gap-3 md:mb-6 md:flex-row md:items-end">
