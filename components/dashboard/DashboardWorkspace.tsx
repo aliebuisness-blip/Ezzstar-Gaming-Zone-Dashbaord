@@ -87,6 +87,30 @@ type ZoneAnnouncement = {
   createdAt: number;
 };
 
+type PlatformTournament = {
+  id: string;
+  title: string;
+  description: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  status: "draft" | "published" | "archived";
+  audience: "players" | "zones" | "all";
+  prize?: string | null;
+  imageUrl?: string | null;
+};
+
+type PlatformAnnouncement = {
+  id: string;
+  title: string;
+  body: string;
+  category: "system" | "tournament" | "zone" | "player" | "security" | "event";
+  audience: "players" | "zones" | "all";
+  status: "draft" | "published" | "archived";
+  publishDate?: string | null;
+  imageUrl?: string | null;
+  linkUrl?: string | null;
+};
+
 type SpicaDashboardProps = {
   role: DashboardRole;
   initialView?: RoleNavKey;
@@ -217,6 +241,32 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
   const [announcementVisibility, setAnnouncementVisibility] = useState<ZoneAnnouncement["visibility"]>("public");
   const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
   const [zoneAnnouncements, setZoneAnnouncements] = useState<ZoneAnnouncement[]>([]);
+  const [platformTournaments, setPlatformTournaments] = useState<PlatformTournament[]>([]);
+  const [platformAnnouncements, setPlatformAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [tournamentDraft, setTournamentDraft] = useState({
+    id: "",
+    title: "",
+    description: "",
+    startDate: "",
+    endDate: "",
+    status: "draft" as PlatformTournament["status"],
+    audience: "players" as PlatformTournament["audience"],
+    prize: "",
+    imageUrl: ""
+  });
+  const [platformAnnouncementDraft, setPlatformAnnouncementDraft] = useState({
+    id: "",
+    title: "",
+    body: "",
+    category: "system" as PlatformAnnouncement["category"],
+    audience: "players" as PlatformAnnouncement["audience"],
+    status: "draft" as PlatformAnnouncement["status"],
+    publishDate: "",
+    imageUrl: "",
+    linkUrl: ""
+  });
   const [profileDraft, setProfileDraft] = useState({ username: "", bio: "", favoriteGames: "", avatar: "", banner: "" });
   const [uploadingMedia, setUploadingMedia] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -234,6 +284,59 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
+
+  async function loadPlatformContent() {
+    setContentLoading(true);
+    setContentError(null);
+
+    try {
+      const [tournamentsResponse, announcementsResponse] = await Promise.all([
+        fetch("/api/content/tournaments", { credentials: "include" }),
+        fetch("/api/content/announcements", { credentials: "include" })
+      ]);
+      const [tournamentsPayload, announcementsPayload] = await Promise.all([
+        tournamentsResponse.json().catch(() => ({})),
+        announcementsResponse.json().catch(() => ({}))
+      ]);
+
+      if (!tournamentsResponse.ok || !announcementsResponse.ok) {
+        throw new Error(tournamentsPayload.error ?? announcementsPayload.error ?? "Content could not load.");
+      }
+
+      setPlatformTournaments((tournamentsPayload.tournaments ?? []).map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        startDate: item.start_date,
+        endDate: item.end_date,
+        status: item.status,
+        audience: item.audience,
+        prize: item.prize,
+        imageUrl: item.image_url
+      })));
+      setPlatformAnnouncements((announcementsPayload.announcements ?? []).map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        body: item.body,
+        category: item.category,
+        audience: item.audience,
+        status: item.status,
+        publishDate: item.publish_date,
+        imageUrl: item.image_url,
+        linkUrl: item.link_url
+      })));
+    } catch (error) {
+      setContentError(error instanceof Error ? error.message : "Content could not load.");
+    } finally {
+      setContentLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      loadPlatformContent();
+    }
+  }, [currentUser?.id, role]);
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -385,6 +488,50 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     setAnnouncementVisibility("public");
     setEditingAnnouncementId(null);
     toast("success", editingAnnouncementId ? "Announcement updated." : "Announcement published.");
+  }
+
+  async function savePlatformTournament() {
+    try {
+      const response = await fetch("/api/content/tournaments", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...tournamentDraft, id: tournamentDraft.id || undefined })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error ?? "Tournament could not be saved.");
+      }
+
+      setTournamentDraft({ id: "", title: "", description: "", startDate: "", endDate: "", status: "draft", audience: "players", prize: "", imageUrl: "" });
+      await loadPlatformContent();
+      toast("success", "Tournament saved.");
+    } catch (error) {
+      toast("error", error instanceof Error ? error.message : "Tournament could not be saved.");
+    }
+  }
+
+  async function savePlatformAnnouncement() {
+    try {
+      const response = await fetch("/api/content/announcements", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...platformAnnouncementDraft, id: platformAnnouncementDraft.id || undefined })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error ?? "Announcement could not be saved.");
+      }
+
+      setPlatformAnnouncementDraft({ id: "", title: "", body: "", category: "system", audience: "players", status: "draft", publishDate: "", imageUrl: "", linkUrl: "" });
+      await loadPlatformContent();
+      toast("success", "Announcement saved.");
+    } catch (error) {
+      toast("error", error instanceof Error ? error.message : "Announcement could not be saved.");
+    }
   }
 
   function editZoneAnnouncement(announcement: ZoneAnnouncement) {
@@ -1611,6 +1758,63 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
   }
 
+  function renderTournamentCards(items: PlatformTournament[], emptyTitle: string, emptyDescription: string) {
+    if (contentLoading) {
+      return <LoadingState label="Loading ecosystem content..." />;
+    }
+
+    if (contentError) {
+      return <EmptyState title="Content could not load" description={contentError} />;
+    }
+
+    return items.length ? (
+      <div className="grid gap-3 md:grid-cols-2">
+        {items.map((item) => (
+          <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={item.id}>
+            {item.imageUrl ? <img alt="" className="mb-3 h-28 w-full rounded-xl object-cover" src={item.imageUrl} /> : null}
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone={item.status === "published" ? "success" : item.status === "archived" ? "neutral" : "warning"}>{item.status}</StatusBadge>
+              <StatusBadge tone="active">{item.audience}</StatusBadge>
+            </div>
+            <h3 className="mt-3 font-semibold text-white">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{item.description}</p>
+            {item.prize ? <p className="mt-3 text-xs font-semibold text-cyan-100">{item.prize}</p> : null}
+            <p className="mt-3 text-xs text-slate-500">{item.startDate ? new Date(item.startDate).toLocaleString() : "Date to be announced"}</p>
+          </article>
+        ))}
+      </div>
+    ) : <EmptyState title={emptyTitle} description={emptyDescription} />;
+  }
+
+  function renderAnnouncementCards(items: PlatformAnnouncement[], emptyTitle: string, emptyDescription: string) {
+    if (contentLoading) {
+      return <LoadingState label="Loading updates..." />;
+    }
+
+    if (contentError) {
+      return <EmptyState title="Updates could not load" description={contentError} />;
+    }
+
+    return items.length ? (
+      <div className="space-y-3">
+        {items.map((item) => (
+          <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={item.id}>
+            {item.imageUrl ? <img alt="" className="mb-3 h-28 w-full rounded-xl object-cover" src={item.imageUrl} /> : null}
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone={item.status === "published" ? "success" : item.status === "archived" ? "neutral" : "warning"}>{item.status}</StatusBadge>
+              <StatusBadge tone="active">{item.category}</StatusBadge>
+              <StatusBadge tone="neutral">{item.audience}</StatusBadge>
+            </div>
+            <h3 className="mt-3 font-semibold text-white">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{item.body}</p>
+            {item.linkUrl ? <a className="mt-3 inline-flex text-xs font-semibold text-cyan-100 hover:text-white" href={item.linkUrl} rel="noreferrer" target="_blank">Open link</a> : null}
+            <p className="mt-3 text-xs text-slate-500">{item.publishDate ? new Date(item.publishDate).toLocaleString() : "Not scheduled"}</p>
+          </article>
+        ))}
+      </div>
+    ) : <EmptyState title={emptyTitle} description={emptyDescription} />;
+  }
+
   function renderPlayerDashboard() {
     function renderPlayerEcosystemPanel() {
       return (
@@ -1827,21 +2031,11 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     }
 
     function renderPlayerUpdatesPage() {
-      const ezzstarUpdates: ZoneAnnouncement[] = [];
-
       return (
         <div className="grid gap-5 xl:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
             <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Ezzstar Updates</p>
-            <div className="mt-4 space-y-3">
-              {ezzstarUpdates.length ? ezzstarUpdates.map((item) => (
-                <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={item.id}>
-                  <StatusBadge tone="active">{item.type}</StatusBadge>
-                  <h3 className="mt-3 font-semibold text-white">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.message}</p>
-                </article>
-              )) : <EmptyState title="No platform updates" description="Ezzstar announcements will appear here when published." />}
-            </div>
+            <div className="mt-4">{renderAnnouncementCards(platformAnnouncements, "No platform updates", "Ezzstar announcements will appear here when published.")}</div>
           </section>
           <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
             <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Followed Zone Updates</p>
@@ -1857,6 +2051,18 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
             </div>
           </section>
         </div>
+      );
+    }
+
+    function renderPlayerTournamentsPage() {
+      return (
+        <section className="player-card-in rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Competitive Layer</p>
+          <h3 className="mt-3 text-xl font-semibold text-white">Tournaments</h3>
+          <div className="mt-4">
+            {renderTournamentCards(platformTournaments, "No tournaments available", "Published player tournaments and waitlists will appear here.")}
+          </div>
+        </section>
       );
     }
 
@@ -1961,6 +2167,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
         home={homePanel}
         profile={renderPlayerProfilePage()}
         sessions={activeView === "Active Session" ? activeSessionPanel : renderPlayerActivityPage()}
+        tournaments={renderPlayerTournamentsPage()}
         updates={renderPlayerUpdatesPage()}
         wallet={renderPlayerWalletPage()}
         zones={renderPlayerZonesPage()}
@@ -2040,7 +2247,8 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
 
     const updatesPanel = (
-      <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+      <section className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
           <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Zone Updates</p>
           <h3 className="mt-2 text-xl font-semibold text-white">{editingAnnouncementId ? "Edit announcement" : "Create announcement"}</h3>
@@ -2111,6 +2319,17 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
             )) : <EmptyState title="No announcements yet" description="Create offers, maintenance notices, and event updates for your players." />}
           </div>
         </div>
+      </div>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Ezzstar Zone Updates</p>
+          <div className="mt-4">{renderAnnouncementCards(platformAnnouncements, "No platform updates", "Published Ezzstar updates for zones will appear here.")}</div>
+        </section>
+        <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Zone Tournaments</p>
+          <div className="mt-4">{renderTournamentCards(platformTournaments, "No zone tournaments", "Published zone-facing tournaments will appear here.")}</div>
+        </section>
+      </div>
       </section>
     );
 
@@ -2462,23 +2681,124 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
       </div>
     );
 
+    function renderAdminTournamentManager() {
+      return (
+        <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 shadow-nebula">
+            <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Tournament Control</p>
+            <h3 className="mt-2 text-lg font-semibold text-white">{tournamentDraft.id ? "Edit tournament" : "Create tournament"}</h3>
+            <div className="mt-4 space-y-3">
+              <input className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Title" value={tournamentDraft.title} />
+              <textarea className="app-input min-h-24 resize-none" onChange={(event) => setTournamentDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Description" value={tournamentDraft.description} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, startDate: event.target.value }))} type="datetime-local" value={tournamentDraft.startDate} />
+                <input className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, endDate: event.target.value }))} type="datetime-local" value={tournamentDraft.endDate} />
+                <select className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, status: event.target.value as PlatformTournament["status"] }))} value={tournamentDraft.status}>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <select className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, audience: event.target.value as PlatformTournament["audience"] }))} value={tournamentDraft.audience}>
+                  <option value="players">Players</option>
+                  <option value="zones">Zones</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+              <input className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, prize: event.target.value }))} placeholder="Prize / reward text" value={tournamentDraft.prize} />
+              <input className="app-input" onChange={(event) => setTournamentDraft((current) => ({ ...current, imageUrl: event.target.value }))} placeholder="Image / banner URL" value={tournamentDraft.imageUrl} />
+              <div className="flex gap-2">
+                <AppButton onClick={savePlatformTournament} type="button">{tournamentDraft.id ? "Save changes" : "Create tournament"}</AppButton>
+                {tournamentDraft.id ? <AppButton onClick={() => setTournamentDraft({ id: "", title: "", description: "", startDate: "", endDate: "", status: "draft", audience: "players", prize: "", imageUrl: "" })} type="button" variant="ghost">Cancel</AppButton> : null}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 shadow-nebula">
+            <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Tournament List</p>
+            <div className="mt-4">{renderTournamentCards(platformTournaments, "No tournaments scheduled", "Create a tournament to publish it to players or zones.")}</div>
+            {platformTournaments.length ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {platformTournaments.map((item) => (
+                  <button className="rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:border-cyan-200/30 hover:text-white" key={item.id} onClick={() => setTournamentDraft({ id: item.id, title: item.title, description: item.description, startDate: item.startDate?.slice(0, 16) ?? "", endDate: item.endDate?.slice(0, 16) ?? "", status: item.status, audience: item.audience, prize: item.prize ?? "", imageUrl: item.imageUrl ?? "" })} type="button">
+                    Edit {item.title}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      );
+    }
+
+    function renderAdminAnnouncementManager() {
+      return (
+        <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 shadow-nebula">
+            <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Platform Updates</p>
+            <h3 className="mt-2 text-lg font-semibold text-white">{platformAnnouncementDraft.id ? "Edit announcement" : "Create announcement"}</h3>
+            <div className="mt-4 space-y-3">
+              <input className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Title" value={platformAnnouncementDraft.title} />
+              <textarea className="app-input min-h-24 resize-none" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, body: event.target.value }))} placeholder="Body" value={platformAnnouncementDraft.body} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <select className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, category: event.target.value as PlatformAnnouncement["category"] }))} value={platformAnnouncementDraft.category}>
+                  <option value="system">System</option>
+                  <option value="tournament">Tournament</option>
+                  <option value="zone">Zone</option>
+                  <option value="player">Player</option>
+                  <option value="security">Security</option>
+                  <option value="event">Event</option>
+                </select>
+                <select className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, audience: event.target.value as PlatformAnnouncement["audience"] }))} value={platformAnnouncementDraft.audience}>
+                  <option value="players">Players</option>
+                  <option value="zones">Zones</option>
+                  <option value="all">All</option>
+                </select>
+                <select className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, status: event.target.value as PlatformAnnouncement["status"] }))} value={platformAnnouncementDraft.status}>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <input className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, publishDate: event.target.value }))} type="datetime-local" value={platformAnnouncementDraft.publishDate} />
+              </div>
+              <input className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, imageUrl: event.target.value }))} placeholder="Image URL" value={platformAnnouncementDraft.imageUrl} />
+              <input className="app-input" onChange={(event) => setPlatformAnnouncementDraft((current) => ({ ...current, linkUrl: event.target.value }))} placeholder="Optional link URL" value={platformAnnouncementDraft.linkUrl} />
+              <div className="flex gap-2">
+                <AppButton onClick={savePlatformAnnouncement} type="button">{platformAnnouncementDraft.id ? "Save changes" : "Create update"}</AppButton>
+                {platformAnnouncementDraft.id ? <AppButton onClick={() => setPlatformAnnouncementDraft({ id: "", title: "", body: "", category: "system", audience: "players", status: "draft", publishDate: "", imageUrl: "", linkUrl: "" })} type="button" variant="ghost">Cancel</AppButton> : null}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 shadow-nebula">
+            <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Announcement List</p>
+            <div className="mt-4">{renderAnnouncementCards(platformAnnouncements, "No announcements published", "Create a platform update to publish it to players or zones.")}</div>
+            {platformAnnouncements.length ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {platformAnnouncements.map((item) => (
+                  <button className="rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:border-cyan-200/30 hover:text-white" key={item.id} onClick={() => setPlatformAnnouncementDraft({ id: item.id, title: item.title, body: item.body, category: item.category, audience: item.audience, status: item.status, publishDate: item.publishDate?.slice(0, 16) ?? "", imageUrl: item.imageUrl ?? "", linkUrl: item.linkUrl ?? "" })} type="button">
+                    Edit {item.title}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      );
+    }
+
     const simplePage = (
-      <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+      activeView === "Tournaments" ? renderAdminTournamentManager() : activeView === "Announcements" ? renderAdminAnnouncementManager() : <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
         <p className="text-xs uppercase tracking-[0.18em] text-purple-200">
-          {activeView === "Moderation" ? "Trust & Safety" : activeView === "Support" ? "Support Desk" : activeView === "Announcements" ? "Platform Announcements" : "Ecosystem Events"}
+          {activeView === "Moderation" ? "Trust & Safety" : activeView === "Support" ? "Support Desk" : "Ecosystem Events"}
         </p>
         <h3 className="mt-3 text-xl font-semibold text-white">
-          {activeView === "Moderation" ? "Moderation Queue" : activeView === "Support" ? "Operator & Player Support" : activeView === "Announcements" ? "Ezzstar Updates" : "Tournament Control"}
+          {activeView === "Moderation" ? "Moderation Queue" : activeView === "Support" ? "Operator & Player Support" : "Ecosystem Control"}
         </h3>
         <EmptyState
-          title={activeView === "Moderation" ? "No moderation items" : activeView === "Support" ? "No support tickets" : activeView === "Announcements" ? "No announcements published" : "No tournaments scheduled"}
+          title={activeView === "Moderation" ? "No moderation items" : activeView === "Support" ? "No support tickets" : "No records yet"}
           description={activeView === "Moderation"
             ? "Suspicious activity, player reports, and zone review flags will appear here."
             : activeView === "Support"
               ? "Zone owner requests, player billing questions, and technical support cases will be handled here."
-              : activeView === "Announcements"
-                ? "Publish ecosystem updates, maintenance notices, offers, and event announcements from this workspace."
-                : "Create and manage platform tournaments here when the competitive layer is enabled."}
+              : "This admin workspace will show real Supabase-backed records when available."}
         />
       </section>
     );
@@ -2498,8 +2818,8 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
 
     const homePanel = (
-      <div className="space-y-6">
-        <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
           <StatCard detail={`${zones.filter((zone) => zone.status === "Pending").length} pending review`} icon={Landmark} title="Total Zones" value={String(zones.length)} />
           <StatCard detail="Player wallets in mock network" icon={Users} title="Total Players" tone="purple" value={String(players.length)} />
           <StatCard detail="Registered seats across zones" icon={Monitor} title="Network Capacity" tone="green" value={String(platformPcCapacity)} />
@@ -2509,9 +2829,9 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
           <StatCard detail="10% fee on completed settlements" icon={ShieldCheck} title="Commission Earned" tone="green" value={formatSpica(commissionEarned)} />
           <StatCard detail="Zone net earned" icon={Banknote} title="Zone Net" tone="green" value={formatSpica(totalZoneNet)} />
         </div>
-        <div className="grid gap-5 xl:grid-cols-[1fr_0.7fr]">
+        <div className="grid gap-4 xl:grid-cols-[1fr_0.55fr]">
           {renderAdminZoneTable()}
-          <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
+          <section className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 shadow-nebula">
             <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Admin Notifications</p>
             <div className="mt-4 space-y-3">
               {adminNotifications.length ? adminNotifications.map((item, index) => (
@@ -2523,7 +2843,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
             </div>
           </section>
         </div>
-        <div className="grid gap-5 2xl:grid-cols-[1fr_0.85fr]">
+        <div className="grid gap-4 2xl:grid-cols-[1fr_0.85fr]">
           {renderAdminSettlementControl()}
           <WithdrawalTable withdrawals={withdrawals} />
         </div>

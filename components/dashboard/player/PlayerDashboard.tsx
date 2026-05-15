@@ -6,7 +6,6 @@ import { PlayerProfile } from "@/components/dashboard/player/PlayerProfile";
 import { PlayerUpdates } from "@/components/dashboard/player/PlayerUpdates";
 import { PlayerWallet } from "@/components/dashboard/player/PlayerWallet";
 import { PlayerZones } from "@/components/dashboard/player/PlayerZones";
-import { EmptyState } from "@/components/ui/EmptyState";
 
 type PlayerDashboardProps = {
   activeView: RoleNavKey;
@@ -15,10 +14,11 @@ type PlayerDashboardProps = {
   sessions: ReactNode;
   zones: ReactNode;
   updates: ReactNode;
+  tournaments: ReactNode;
   profile: ReactNode;
 };
 
-export function PlayerDashboard({ activeView, home, wallet, sessions, zones, updates, profile }: PlayerDashboardProps) {
+export function PlayerDashboard({ activeView, home, wallet, sessions, zones, updates, tournaments, profile }: PlayerDashboardProps) {
   if (activeView === "Wallet") {
     return <PlayerWallet>{wallet}</PlayerWallet>;
   }
@@ -40,13 +40,7 @@ export function PlayerDashboard({ activeView, home, wallet, sessions, zones, upd
   }
 
   if (activeView === "Tournaments") {
-    return (
-      <section className="player-card-in rounded-2xl border border-white/10 bg-white/[0.055] p-5 shadow-nebula">
-        <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Competitive Layer</p>
-        <h3 className="mt-3 text-xl font-semibold text-white">Tournaments are coming soon</h3>
-        <EmptyState title="No tournaments available" description="Featured SPICA tournaments and waitlists will appear here when Ezzstar enables the competitive layer." />
-      </section>
-    );
+    return <PlayerUpdates>{tournaments}</PlayerUpdates>;
   }
 
   return <PlayerHome>{home}</PlayerHome>;

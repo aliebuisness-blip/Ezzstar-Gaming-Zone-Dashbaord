@@ -102,6 +102,36 @@ create table if not exists public.admin_activity (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.tournaments (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text not null,
+  start_date timestamptz,
+  end_date timestamptz,
+  status text not null default 'draft' check (status in ('draft', 'published', 'archived')),
+  audience text not null default 'players' check (audience in ('players', 'zones', 'all')),
+  prize text,
+  image_url text,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  body text not null,
+  category text not null default 'system' check (category in ('system', 'tournament', 'zone', 'player', 'security', 'event')),
+  audience text not null default 'players' check (audience in ('players', 'zones', 'all')),
+  status text not null default 'draft' check (status in ('draft', 'published', 'archived')),
+  publish_date timestamptz,
+  image_url text,
+  link_url text,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.profiles enable row level security;
 alter table public.zone_listing_requests enable row level security;
 alter table public.zones enable row level security;
@@ -109,6 +139,8 @@ alter table public.player_sessions enable row level security;
 alter table public.wallet_transactions enable row level security;
 alter table public.notifications enable row level security;
 alter table public.admin_activity enable row level security;
+alter table public.tournaments enable row level security;
+alter table public.announcements enable row level security;
 
 -- The server uses SUPABASE_SERVICE_ROLE_KEY for admin reads/writes.
 -- Add client RLS policies later when direct browser Supabase access is introduced.

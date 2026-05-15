@@ -1,11 +1,33 @@
 import { z } from "zod";
 import { jsonOk } from "@/lib/api";
-import { getProfile, getWebRedirectForRole, normalizeWebRole, publicProfile, setSupabaseSessionCookies, signInWithPassword, upsertProfile } from "@/lib/supabase/web";
+import { getProfile, getWebRedirectForRole, normalizeWebRole, publicProfile, selectRows, setSupabaseSessionCookies, signInWithPassword, upsertProfile } from "@/lib/supabase/web";
 
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
 });
+
+async function resolveLoginRedirect(user: ReturnType<typeof publicProfile>) {
+  if (user.role !== "zone_owner" && user.role !== "manager") {
+    return getWebRedirectForRole(user.role);
+  }
+
+  const zones = await selectRows<{ status?: string }>(
+    "zones",
+    `owner_id=eq.${encodeURIComponent(user.id)}&select=status&order=created_at.desc&limit=1`
+  ).catch(() => []);
+  const status = zones[0]?.status ?? "pending";
+
+  if (status === "active") {
+    return process.env.NEXT_PUBLIC_ZONE_OS_URL ?? (process.env.NODE_ENV === "development" ? "/zone" : "/zone-os");
+  }
+
+  if (status === "rejected") {
+    return "/list-your-zone?status=rejected";
+  }
+
+  return "/list-your-zone?status=pending";
+}
 
 export async function POST(request: Request) {
   try {
@@ -21,7 +43,7 @@ export async function POST(request: Request) {
       role: metadataRole
     });
     const user = publicProfile(profile);
-    const redirectTo = getWebRedirectForRole(user.role);
+    const redirectTo = await resolveLoginRedirect(user);
 
     await setSupabaseSessionCookies(session, request.url);
 

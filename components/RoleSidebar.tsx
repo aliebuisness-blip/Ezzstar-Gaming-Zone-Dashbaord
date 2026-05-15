@@ -67,6 +67,8 @@ const roleMeta = {
       { label: "Home", href: "/player", icon: Gauge },
       { label: "Wallet", href: "/player/wallet", icon: WalletCards },
       { label: "Sessions", href: "/player/sessions", icon: Timer },
+      { label: "Tournaments", href: "/player/tournaments", icon: Trophy },
+      { label: "Updates", href: "/player/updates", icon: Sparkles },
       { label: "Profile", href: "/player/profile", icon: UserRound }
     ]
   },
@@ -79,6 +81,7 @@ const roleMeta = {
       { label: "PCs", href: "/zone/pcs", icon: Monitor },
       { label: "Sessions", href: "/zone/sessions", icon: Activity },
       { label: "Settlements", href: "/zone/settlements", icon: Coins },
+      { label: "Updates", href: "/zone/updates", icon: Sparkles },
       { label: "Settings", href: "/zone/settings", icon: Settings }
     ]
   },
