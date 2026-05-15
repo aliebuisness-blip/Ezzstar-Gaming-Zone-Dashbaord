@@ -33,6 +33,35 @@ export type SupabaseSession = {
 
 const ACCESS_COOKIE = "sb_access_token";
 const REFRESH_COOKIE = "sb_refresh_token";
+const VALID_WEB_ROLES: WebRole[] = ["player", "zone_owner", "manager", "admin"];
+
+export function normalizeWebRole(role: unknown): WebRole {
+  if (role === "zone_manager") {
+    return "manager";
+  }
+
+  return VALID_WEB_ROLES.includes(role as WebRole) ? (role as WebRole) : "player";
+}
+
+export function getWebRedirectForRole(role: unknown) {
+  const normalizedRole = normalizeWebRole(role);
+
+  if (normalizedRole === "player") {
+    return "/player";
+  }
+
+  if (normalizedRole === "admin") {
+    return "/admin";
+  }
+
+  const zoneOsUrl = process.env.NEXT_PUBLIC_ZONE_OS_URL;
+
+  if (zoneOsUrl) {
+    return zoneOsUrl;
+  }
+
+  return process.env.NODE_ENV === "development" ? "/zone" : "/list-your-zone";
+}
 
 function normalizeSupabaseUrl(url: string) {
   return url.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
@@ -88,7 +117,7 @@ async function supabaseFetch<T>(path: string, init: RequestInit = {}, options: {
 }
 
 export function publicProfile(profile: Partial<WebProfile> & { id: string; email?: string | null }) {
-  const role = (profile.role ?? "player") as WebRole;
+  const role = normalizeWebRole(profile.role);
   return {
     id: profile.id,
     name: profile.name ?? profile.username ?? profile.email ?? "Player",

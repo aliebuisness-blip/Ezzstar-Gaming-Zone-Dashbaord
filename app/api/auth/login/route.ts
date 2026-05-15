@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { jsonError, jsonOk } from "@/lib/api";
-import { getProfile, publicProfile, setSupabaseSessionCookies, signInWithPassword, upsertProfile, WebRole } from "@/lib/supabase/web";
+import { jsonOk } from "@/lib/api";
+import { getProfile, getWebRedirectForRole, normalizeWebRole, publicProfile, setSupabaseSessionCookies, signInWithPassword, upsertProfile } from "@/lib/supabase/web";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const input = LoginSchema.parse(await request.json());
     const email = input.email.toLowerCase().trim();
     const session = await signInWithPassword(email, input.password);
-    const metadataRole = (session.user.app_metadata?.role ?? session.user.user_metadata?.role ?? "player") as WebRole;
+    const metadataRole = normalizeWebRole(session.user.app_metadata?.role ?? session.user.user_metadata?.role);
     const profile = await getProfile(session.user.id) ?? await upsertProfile({
       id: session.user.id,
       email: session.user.email ?? email,
@@ -20,12 +20,23 @@ export async function POST(request: Request) {
       username: String(session.user.user_metadata?.username ?? email.split("@")[0]),
       role: metadataRole
     });
+    const user = publicProfile(profile);
+    const redirectTo = getWebRedirectForRole(user.role);
 
     await setSupabaseSessionCookies(session, request.url);
 
     return jsonOk({
       ok: true,
-      user: publicProfile(profile)
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        username: user.username,
+        avatar: user.avatar,
+        spica_balance: user.spica_balance
+      },
+      redirectTo
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sign in failed.";

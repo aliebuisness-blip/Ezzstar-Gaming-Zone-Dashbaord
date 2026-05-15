@@ -9,6 +9,7 @@ const rolePath = {
   player: "/player",
   zone_owner: "/zone",
   manager: "/zone",
+  zone_manager: "/zone",
   admin: "/admin"
 } as const;
 
@@ -18,26 +19,68 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [redirectTarget, setRedirectTarget] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setRedirectTarget("");
     setLoading(true);
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-    const payload = await response.json();
-    setLoading(false);
 
-    if (!response.ok) {
-      setError(payload.error ?? "Sign in failed");
-      return;
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const payload = await response.json().catch(() => ({ ok: false, error: "Sign in failed. Please try again." }));
+      const redirectTo = typeof payload.redirectTo === "string"
+        ? payload.redirectTo
+        : rolePath[payload.user?.role as keyof typeof rolePath];
+
+      if (process.env.NODE_ENV === "development") {
+        console.log("Login API status", response.status);
+        console.log("Login API response", payload);
+        console.log("Login redirectTo", redirectTo);
+      }
+
+      if (!response.ok || payload.ok === false) {
+        setError(payload.error ?? "Sign in failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (!redirectTo) {
+        setError("Login successful, but redirect failed. Go to dashboard");
+        setRedirectTarget("/player");
+        setLoading(false);
+        return;
+      }
+
+      setRedirectTarget(redirectTo);
+
+      window.setTimeout(() => {
+        if (window.location.pathname === "/login") {
+          setError("Login successful, but redirect failed. Go to dashboard");
+          setLoading(false);
+        }
+      }, 1500);
+
+      if (/^https?:\/\//.test(redirectTo)) {
+        window.location.assign(redirectTo);
+        return;
+      }
+
+      router.push(redirectTo);
+      router.refresh();
+    } catch (loginError) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("Login request failed", loginError);
+      }
+      setError("Sign in failed. Please check your connection and try again.");
+      setLoading(false);
     }
-
-    router.push(rolePath[payload.user.role as keyof typeof rolePath]);
   }
 
   return (
@@ -51,7 +94,16 @@ export default function LoginPage() {
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
         <input autoComplete="email" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50" onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" value={email} />
         <input autoComplete="current-password" className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50" onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" value={password} />
-        {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        {error ? (
+          <div className="rounded-2xl border border-red-400/20 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+            <p>{error}</p>
+            {redirectTarget ? (
+              <Link className="mt-2 inline-flex text-cyan-100 transition hover:text-white" href={redirectTarget}>
+                Go to dashboard
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
         <button className="w-full rounded-2xl border border-cyan-300/25 bg-cyan-300/15 px-5 py-3 font-semibold text-cyan-50 transition hover:border-cyan-100/60 hover:shadow-[0_0_28px_rgba(34,211,238,0.22)]" disabled={loading} type="submit">
           {loading ? "Syncing your profile..." : "Sign in"}
         </button>
