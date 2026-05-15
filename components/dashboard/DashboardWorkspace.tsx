@@ -35,6 +35,7 @@ import { ZoneSessions } from "@/components/dashboard/zone/ZoneSessions";
 import { ZoneEarnings } from "@/components/dashboard/zone/ZoneEarnings";
 import { ZoneUpdates } from "@/components/dashboard/zone/ZoneUpdates";
 import { ZoneSettings } from "@/components/dashboard/zone/ZoneSettings";
+import { ZonePcMap } from "@/components/dashboard/zone/ZonePcMap";
 import { AdminDashboard } from "@/components/dashboard/admin/AdminDashboard";
 import { AdminHome } from "@/components/dashboard/admin/AdminHome";
 import { AdminZones } from "@/components/dashboard/admin/AdminZones";
@@ -59,7 +60,7 @@ import {
 
 const defaultView: Record<DashboardRole, RoleNavKey> = {
   player: "Home",
-  zone: "Home",
+  zone: "Map",
   admin: "Home"
 };
 
@@ -2366,17 +2367,30 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
 
     const homePanel = (
-      <div className="space-y-6">
-        {renderZoneOperatorStartPanel()}
-        <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
-          <StatCard detail="Owner console zone" icon={Landmark} title="Zone" value={ownerZone.name} />
-          <StatCard detail="PCs currently in use" icon={Monitor} title="Active PCs" tone="purple" value={String(ownerZone.pcs.filter((pc) => pc.sessionId || pc.status === "in_use").length)} />
-          <StatCard detail="Gross zone revenue" icon={Coins} title="Earnings" tone="green" value={formatSpica(ownerGross)} />
-          <StatCard detail="Pending owner withdrawal requests" icon={WalletCards} title="Payout Requests" tone="red" value={String(withdrawals.filter((item) => item.type === "Owner" && item.status === "Pending").length)} />
+      <div className="space-y-4">
+        <ZonePcMap
+          onAddTime={(sessionId, minutes) => addDashboardTime(sessionId, minutes)}
+          onEndSession={(sessionId) => endDashboardSession(sessionId)}
+          onMaintenance={(pcId, enabled) => updatePc(pcId, { maintenanceMode: enabled })}
+          onSendMessage={(pcId) => sendPopupToPc(pcId)}
+          onStartSession={(pc) => setSelectedOperatorPcId(pc.id)}
+          remainingBySession={remainingBySession}
+          serverNow={serverNow}
+          sessions={ownerSessions}
+          zone={ownerZone}
+        />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          {renderZoneOperatorStartPanel()}
+          <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 shadow-nebula">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Operations Snapshot</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <StatCard detail="Owner console zone" icon={Landmark} title="Zone" value={ownerZone.name} />
+              <StatCard detail="PCs currently in use" icon={Monitor} title="Active PCs" tone="purple" value={String(ownerZone.pcs.filter((pc) => pc.sessionId || pc.status === "in_use").length)} />
+              <StatCard detail="Gross zone revenue" icon={Coins} title="Earnings" tone="green" value={formatSpica(ownerGross)} />
+              <StatCard detail="Pending payout requests" icon={WalletCards} title="Payouts" tone="red" value={String(withdrawals.filter((item) => item.type === "Owner" && item.status === "Pending").length)} />
+            </div>
+          </section>
         </div>
-        {renderZoneAnalyticsPanel()}
-        {renderZoneSessionHistoryPanel()}
-        <SettlementTable settlements={ownerSettlements} />
       </div>
     );
 
@@ -2459,6 +2473,45 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
   }
 
   function renderAdminDashboard() {
+    const getZoneRawStatus = (zone: Zone) => String(zone.pricing?.rawStatus ?? zone.status).toLowerCase();
+    const getZoneListingStatus = (zone: Zone) => String(zone.pricing?.listingRequestStatus ?? "").toLowerCase();
+    const isPendingReviewZone = (zone: Zone) => {
+      const rawStatus = getZoneRawStatus(zone);
+      const listingStatus = getZoneListingStatus(zone);
+
+      if (rawStatus === "active" || rawStatus === "approved" || rawStatus === "rejected" || rawStatus === "suspended") {
+        return false;
+      }
+
+      return rawStatus === "pending" || listingStatus === "pending";
+    };
+    const isApprovedZone = (zone: Zone) => {
+      const rawStatus = getZoneRawStatus(zone);
+      const listingStatus = getZoneListingStatus(zone);
+
+      if (rawStatus === "rejected" || rawStatus === "suspended") {
+        return false;
+      }
+
+      return rawStatus === "active" || rawStatus === "approved" || listingStatus === "approved";
+    };
+    const isRejectedZone = (zone: Zone) => {
+      const rawStatus = getZoneRawStatus(zone);
+      const listingStatus = getZoneListingStatus(zone);
+
+      return rawStatus === "rejected" || rawStatus === "suspended" || listingStatus === "rejected";
+    };
+    const formatZoneDate = (value: unknown) => {
+      if (!value || typeof value !== "string") {
+        return "Not recorded";
+      }
+
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "Not recorded" : date.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+    };
+    const pendingReviewZones = zones.filter(isPendingReviewZone);
+    const approvedZones = zones.filter(isApprovedZone);
+    const rejectedZones = zones.filter(isRejectedZone);
     const filteredZones = zones.filter((zone) =>
       [zone.name, zone.city, zone.status].some((value) => value.toLowerCase().includes(adminSearch.toLowerCase()))
     );
@@ -2467,26 +2520,24 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     const staleSessionCount = activeSessions.filter((session) => getRemainingTime(session.startTime, session.durationSeconds, serverNow) === 0).length;
     const offlineWithSessionCount = activeSessions.filter((session) => zones.some((zone) => zone.pcs.some((pc) => pc.id === session.pcId && pc.status === "offline"))).length;
     const adminNotifications = [
-      ...zones.filter((zone) => zone.status === "Pending").map((zone) => ({ id: `zone-pending-${zone.id}`, title: "New zone pending", detail: `${zone.name} awaits review.` })),
+      ...pendingReviewZones.map((zone) => ({ id: `zone-pending-${zone.id}`, title: "New zone pending", detail: `${zone.name} awaits review.` })),
       ...settlements.filter((settlement) => settlement.status === "Pending" || settlement.status === "Ready").map((settlement) => ({ id: `settlement-${settlement.id}`, title: "Settlement pending", detail: `${settlement.zone} has ${formatSpica(settlement.zoneNetAmount)} net pending.` })),
       ...(offlineWithSessionCount ? [{ id: "offline-active-session-warning", title: "Operational warning", detail: `${offlineWithSessionCount} session${offlineWithSessionCount === 1 ? "" : "s"} need zone follow-up.` }] : []),
       ...(staleSessionCount ? [{ id: "stale-session-cleanup-warning", title: "Session cleanup needed", detail: `${staleSessionCount} expired session${staleSessionCount === 1 ? "" : "s"} awaiting cleanup.` }] : [])
     ].slice(0, 8);
 
     function renderPendingZoneApprovals() {
-      const pendingZones = zones.filter((zone) => zone.status === "Pending");
-
       return (
         <section className="rounded-2xl border border-white/10 bg-[#0b0d12] p-5 shadow-nebula">
           <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-amber-200">Zone Approval Queue</p>
-              <h3 className="mt-2 text-xl font-semibold text-white">{pendingZones.length} pending zone{pendingZones.length === 1 ? "" : "s"}</h3>
+              <h3 className="mt-2 text-xl font-semibold text-white">{pendingReviewZones.length} pending zone{pendingReviewZones.length === 1 ? "" : "s"}</h3>
             </div>
-            <StatusBadge tone={pendingZones.length ? "warning" : "success"}>{pendingZones.length ? "Review needed" : "Clear"}</StatusBadge>
+            <StatusBadge tone={pendingReviewZones.length ? "warning" : "success"}>{pendingReviewZones.length ? "Review needed" : "Clear"}</StatusBadge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {pendingZones.length ? pendingZones.map((zone) => (
+            {pendingReviewZones.length ? pendingReviewZones.map((zone) => (
               <article className="rounded-2xl border border-white/10 bg-black/25 p-4" key={zone.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -2504,6 +2555,90 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
                 </div>
               </article>
             )) : <EmptyState title="No pending zones" description="New zone owner signups and listing approvals will appear here." />}
+          </div>
+        </section>
+      );
+    }
+
+    function renderApprovedZonesSection() {
+      return (
+        <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.055] shadow-nebula">
+          <div className="flex flex-col justify-between gap-3 border-b border-white/10 px-5 py-4 md:flex-row md:items-center">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-emerald-200">Approved Network</p>
+              <h3 className="mt-2 text-lg font-semibold text-white">{approvedZones.length} active zone{approvedZones.length === 1 ? "" : "s"}</h3>
+            </div>
+            <StatusBadge tone="success">Active / Approved</StatusBadge>
+          </div>
+          {approvedZones.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] text-left text-sm">
+                <thead className="bg-white/[0.04] text-xs uppercase tracking-[0.16em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Zone</th>
+                    <th className="px-4 py-3">Owner</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">PCs Requested</th>
+                    <th className="px-4 py-3">Rent / Hour</th>
+                    <th className="px-4 py-3">Approved / Updated</th>
+                    <th className="px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {approvedZones.map((zone) => (
+                    <tr className="text-slate-300" key={`active-zone-${zone.id}`}>
+                      <td className="px-4 py-3"><p className="font-semibold text-white">{zone.name}</p><p className="text-xs text-slate-500">{zone.city || "City not set"}</p></td>
+                      <td className="px-4 py-3"><p>{zone.owner?.name ?? "Owner"}</p><p className="text-xs text-slate-500">{zone.owner?.email ?? "No owner email"}</p></td>
+                      <td className="px-4 py-3"><StatusBadge tone="success">Active</StatusBadge></td>
+                      <td className="px-4 py-3">{zone.pricing?.pcCount ?? zone.pcs.length ?? 0}</td>
+                      <td className="px-4 py-3 text-cyan-100">{zone.pricing?.rentPerHour ?? 0} SPICA</td>
+                      <td className="px-4 py-3 text-slate-400">{formatZoneDate(zone.pricing?.approvedAt ?? zone.pricing?.updatedAt)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button className="rounded-lg border border-amber-300/20 px-2 py-1 text-xs text-amber-100" onClick={() => patchZoneStatus(zone.id, "suspended")} type="button">Suspend</button>
+                          <button className="rounded-lg border border-red-300/20 px-2 py-1 text-xs text-red-100" onClick={() => patchZoneStatus(zone.id, "rejected")} type="button">Reject</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-5">
+              <EmptyState title="No approved zones yet" description="Approved zone owner applications will move here automatically." />
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function renderRejectedZonesSection() {
+      return (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 shadow-nebula">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-red-200">Rejected / Suspended</p>
+              <h3 className="mt-2 text-lg font-semibold text-white">Status history</h3>
+            </div>
+            <StatusBadge tone={rejectedZones.length ? "danger" : "success"}>{rejectedZones.length ? `${rejectedZones.length} record${rejectedZones.length === 1 ? "" : "s"}` : "Clear"}</StatusBadge>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {rejectedZones.length ? rejectedZones.map((zone) => (
+              <article className="rounded-2xl border border-red-300/15 bg-red-400/10 p-4" key={`rejected-zone-${zone.id}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold text-white">{zone.name}</h4>
+                    <p className="mt-1 text-sm text-slate-400">{zone.city || "City not set"} - {zone.owner?.email ?? "No owner email"}</p>
+                    <p className="mt-1 text-xs text-slate-500">Updated {formatZoneDate(zone.pricing?.rejectedAt ?? zone.pricing?.updatedAt)}</p>
+                  </div>
+                  <StatusBadge tone="danger">Rejected</StatusBadge>
+                </div>
+                <div className="mt-4">
+                  <AppButton onClick={() => patchZoneStatus(zone.id, "active")} type="button" variant="secondary">Reactivate</AppButton>
+                </div>
+              </article>
+            )) : <EmptyState title="No rejected zones" description="Rejected or suspended applications will appear here for audit visibility." />}
           </div>
         </section>
       );
@@ -2888,7 +3023,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
         simplePage={simplePage}
         systemHealth={systemHealthPanel}
         withdrawals={renderApprovalTable()}
-        zones={<div className="space-y-5">{renderPendingZoneApprovals()}{renderAdminZoneTable()}</div>}
+        zones={<div className="space-y-5">{renderPendingZoneApprovals()}{renderApprovedZonesSection()}{renderRejectedZonesSection()}</div>}
       />
     );
   }

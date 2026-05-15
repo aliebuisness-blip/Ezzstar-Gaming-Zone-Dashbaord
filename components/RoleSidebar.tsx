@@ -31,6 +31,7 @@ export type RoleNavKey =
   | "Tournaments"
   | "Updates"
   | "Profile"
+  | "Map"
   | "Nearby Zones"
   | "Active Session"
   | "Rewards"
@@ -77,7 +78,7 @@ const roleMeta = {
     title: "Operator Console",
     href: "/zone",
     nav: [
-      { label: "Home", href: "/zone", icon: Gauge },
+      { label: "Map", href: "/zone", icon: Gauge },
       { label: "PCs", href: "/zone/pcs", icon: Monitor },
       { label: "Sessions", href: "/zone/sessions", icon: Activity },
       { label: "Settlements", href: "/zone/settlements", icon: Coins },

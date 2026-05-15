@@ -26,6 +26,10 @@ export function ZoneDashboard({ activeView, emptyState, home, pcs, sessions, set
     return <ZoneHome>{emptyState}</ZoneHome>;
   }
 
+  if (activeView === "Map" || activeView === "Home") {
+    return <ZoneHome>{home}</ZoneHome>;
+  }
+
   if (activeView === "PC Control" || activeView === "PCs") {
     return <ZonePCs>{pcs}</ZonePCs>;
   }
