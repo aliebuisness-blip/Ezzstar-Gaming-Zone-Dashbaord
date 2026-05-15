@@ -14,10 +14,6 @@ export async function requirePageRole(role: WebRole | WebRole[]) {
   try {
     const { profile } = await requireWebUser();
 
-    if (profile.role === "admin") {
-      return profile;
-    }
-
     if (!roles.includes(profile.role)) {
       redirect(rolePath[profile.role] ?? "/login");
     }

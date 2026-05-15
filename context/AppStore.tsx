@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { io } from "socket.io-client";
 import {
   ActivityItem,
@@ -174,6 +174,7 @@ function writeLastLoginUser(user: any) {
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [state, setState] = useState<SpicaMockState>(() => createEmptySpicaState());
   const [authStatus, setAuthStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [dashboardDataStatus, setDashboardDataStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
@@ -434,6 +435,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshBackendDashboard();
   }, [pathname, refreshBackendDashboard]);
+
+  useEffect(() => {
+    if (state.currentUser?.role === "admin" && pathname.startsWith("/player")) {
+      router.replace("/admin");
+    }
+  }, [pathname, router, state.currentUser?.role]);
 
   useEffect(() => {
     if (PUBLIC_AUTH_PATHS.includes(window.location.pathname)) {

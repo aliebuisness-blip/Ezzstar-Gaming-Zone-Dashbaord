@@ -41,10 +41,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (role === "admin") {
-    return NextResponse.next();
-  }
-
   if (match.prefix === "/zone" && role === "manager") {
     return NextResponse.next();
   }

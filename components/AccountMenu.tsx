@@ -43,10 +43,7 @@ function getZoneOsUrl() {
 
 function dashboardLinks(role: AuthUser["role"]) {
   if (role === "admin") {
-    return [
-      { label: "Ezzstar Control Center", href: "/admin" },
-      { label: "SPICA Player App", href: "/player" }
-    ];
+    return [{ label: "Ezzstar Control Center", href: "/admin" }];
   }
 
   if (role === "zone_owner" || role === "manager") {
