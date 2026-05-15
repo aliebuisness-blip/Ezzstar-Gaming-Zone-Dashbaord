@@ -2367,7 +2367,7 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
     );
 
     const homePanel = (
-      <div className="space-y-4">
+      <div>
         <ZonePcMap
           onAddTime={(sessionId, minutes) => addDashboardTime(sessionId, minutes)}
           onEndSession={(sessionId) => endDashboardSession(sessionId)}
@@ -2379,18 +2379,6 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
           sessions={ownerSessions}
           zone={ownerZone}
         />
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          {renderZoneOperatorStartPanel()}
-          <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 shadow-nebula">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Operations Snapshot</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <StatCard detail="Owner console zone" icon={Landmark} title="Zone" value={ownerZone.name} />
-              <StatCard detail="PCs currently in use" icon={Monitor} title="Active PCs" tone="purple" value={String(ownerZone.pcs.filter((pc) => pc.sessionId || pc.status === "in_use").length)} />
-              <StatCard detail="Gross zone revenue" icon={Coins} title="Earnings" tone="green" value={formatSpica(ownerGross)} />
-              <StatCard detail="Pending payout requests" icon={WalletCards} title="Payouts" tone="red" value={String(withdrawals.filter((item) => item.type === "Owner" && item.status === "Pending").length)} />
-            </div>
-          </section>
-        </div>
       </div>
     );
 

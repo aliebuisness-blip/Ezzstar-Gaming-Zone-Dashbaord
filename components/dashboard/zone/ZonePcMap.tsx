@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Activity, Clock3, Copy, Lock, Monitor, MoreHorizontal, Radio, Signal, UserRound, Wrench } from "lucide-react";
+import { Clock3, Copy, Lock, MoreHorizontal, Radio, Signal, UserRound, Wrench, X } from "lucide-react";
 import { AppButton } from "@/components/ui/AppButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -121,23 +121,24 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
   const pcs = zone.pcs;
   const sections = useMemo(() => ["All", ...Array.from(new Set(pcs.map(getPcSection)))], [pcs]);
   const visiblePcs = selectedSection === "All" ? pcs : pcs.filter((pc) => getPcSection(pc) === selectedSection);
-  const selectedPc = pcs.find((pc) => pc.id === selectedPcId) ?? pcs[0] ?? null;
+  const selectedPc = selectedPcId ? pcs.find((pc) => pc.id === selectedPcId) ?? null : null;
   const selectedSession = selectedPc ? sessionByPc.get(selectedPc.id) : undefined;
   const activeCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "active_session").length;
   const offlineCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "offline").length;
   const maintenanceCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "maintenance").length;
+  const idleCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "idle").length;
 
   if (!pcs.length) {
     return (
       <section className="rounded-2xl border border-white/10 bg-[#0b0d12] p-5 shadow-nebula">
-        <EmptyState title="No PCs mapped yet" description="Pair or add PCs from the PCs page. Real registered machines will appear on this floor map." />
+        <EmptyState title="No PCs paired yet" description="Pair a PC from the PC Client to see it here." />
       </section>
     );
   }
 
   return (
-    <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="rounded-2xl border border-white/10 bg-[#090b10] p-3 shadow-nebula sm:p-4">
+    <section className={selectedPc ? "grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]" : "grid gap-3"}>
+      <div className="min-w-0 rounded-2xl border border-white/10 bg-[#090b10] p-3 shadow-nebula sm:p-4">
         <div className="flex flex-col justify-between gap-3 border-b border-white/10 pb-3 md:flex-row md:items-center">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">PC Map / Floor View</p>
@@ -145,25 +146,36 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusBadge tone="active">{`${activeCount} active`}</StatusBadge>
+            <StatusBadge tone="success">{`${idleCount} idle`}</StatusBadge>
             <StatusBadge tone={offlineCount ? "offline" : "success"}>{`${offlineCount} offline`}</StatusBadge>
             <StatusBadge tone={maintenanceCount ? "maintenance" : "neutral"}>{`${maintenanceCount} maintenance`}</StatusBadge>
           </div>
         </div>
 
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {sections.map((section) => (
-            <button
-              className={`shrink-0 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${selectedSection === section ? "border-cyan-200/50 bg-cyan-300/15 text-cyan-50" : "border-white/10 bg-white/[0.035] text-slate-400 hover:border-white/20 hover:text-white"}`}
-              key={section}
-              onClick={() => setSelectedSection(section)}
-              type="button"
-            >
-              {section}
-            </button>
-          ))}
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {sections.map((section) => (
+              <button
+                className={`shrink-0 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${selectedSection === section ? "border-cyan-200/50 bg-cyan-300/15 text-cyan-50" : "border-white/10 bg-white/[0.035] text-slate-400 hover:border-white/20 hover:text-white"}`}
+                key={section}
+                onClick={() => setSelectedSection(section)}
+                type="button"
+              >
+                {section}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            {(["idle", "active_session", "offline", "maintenance", "pairing", "reserved"] as PcMapState[]).map((state) => (
+              <span className="inline-flex items-center gap-1.5" key={state}>
+                <span className={`h-1.5 w-1.5 rounded-full ${stateCopy[state].dot}`} />
+                {stateCopy[state].label}
+              </span>
+            ))}
+          </div>
         </div>
 
-        <div className="mt-3 grid auto-rows-[108px] grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="mt-3 grid min-w-0 auto-rows-[108px] grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {visiblePcs.map((pc, index) => {
             const session = sessionByPc.get(pc.id);
             const state = getPcState(pc, session);
@@ -176,7 +188,7 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
 
             return (
               <button
-                className={`group relative overflow-hidden rounded-xl border p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-cyan-200/45 ${selectedPc?.id === pc.id ? "ring-1 ring-cyan-200/50" : ""} ${copy.tile}`}
+                className={`group relative min-w-0 overflow-hidden rounded-xl border p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-cyan-200/45 ${selectedPc?.id === pc.id ? "ring-1 ring-cyan-200/50" : ""} ${copy.tile}`}
                 key={pc.id}
                 onClick={() => setSelectedPcId(pc.id)}
                 style={{
@@ -215,10 +227,15 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
         </div>
       </div>
 
-      <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start">
+      {selectedPc ? (
+      <aside className="min-w-0 space-y-3 xl:sticky xl:top-4 xl:self-start">
         <div className="rounded-2xl border border-white/10 bg-[#0b0d12] p-3 shadow-nebula">
+          <div className="flex items-center justify-between gap-3">
           <p className="text-xs uppercase tracking-[0.18em] text-purple-200">Selected PC</p>
-          {selectedPc ? (
+            <button className="rounded-lg border border-white/10 bg-white/[0.035] p-1.5 text-slate-400 transition hover:text-white" onClick={() => setSelectedPcId(null)} type="button">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
             <div className="mt-4">
               {(() => {
                 const state = getPcState(selectedPc, selectedSession);
@@ -264,40 +281,9 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
                 );
               })()}
             </div>
-          ) : (
-            <EmptyState title="Select a PC" description="Click a tile to inspect status and available operator actions." />
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-          <p className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-cyan-200"><Activity className="h-4 w-4" /> Live Sessions</p>
-          <div className="mt-3 space-y-2">
-            {sessions.filter((session) => session.status === "Active").slice(0, 5).map((session) => (
-              <div className="rounded-xl bg-black/25 px-3 py-2" key={session.id}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold text-white">{session.pcName}</p>
-                  <span className="font-mono text-xs text-cyan-100">{formatTime(remainingBySession[session.id] ?? 0)}</span>
-                </div>
-                <p className="mt-1 truncate text-xs text-slate-500">{session.playerName} - {formatSpica(session.grossSpica)}</p>
-              </div>
-            ))}
-            {!sessions.some((session) => session.status === "Active") ? <p className="text-sm text-slate-500">No active sessions.</p> : null}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-          <p className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-amber-200"><Monitor className="h-4 w-4" /> Offline / Alerts</p>
-          <div className="mt-3 space-y-2">
-            {pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "offline" || pc.maintenanceMode).slice(0, 5).map((pc) => (
-              <div className="flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-sm" key={`alert-${pc.id}`}>
-                <span className="truncate text-slate-300">{pc.name}</span>
-                <span className="text-xs text-slate-500">{pc.maintenanceMode ? "Maintenance" : formatHeartbeat(pc.lastHeartbeat)}</span>
-              </div>
-            ))}
-            {!pcs.some((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "offline" || pc.maintenanceMode) ? <p className="text-sm text-slate-500">No operational alerts.</p> : null}
-          </div>
         </div>
       </aside>
+      ) : null}
     </section>
   );
 }
