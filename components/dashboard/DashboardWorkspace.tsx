@@ -909,7 +909,31 @@ export function DashboardWorkspace({ role, initialView }: SpicaDashboardProps) {
 
     if (!confirmed) return;
 
-    const result = await postJson<{ zone?: unknown }>(`/api/zones/${zoneId}`, { status });
+    let result: { ok?: boolean; zone?: unknown } | null = null;
+
+    try {
+      const response = await fetch(`/api/zones/${zoneId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      const payload = await response.json().catch(() => ({ ok: false, error: "Action could not be completed." }));
+
+      if (!response.ok || payload.ok === false) {
+        const message = payload.error ?? "Action could not be completed.";
+        setTestPanelMessage(message);
+        toast("error", message);
+        return;
+      }
+
+      result = payload;
+    } catch {
+      const message = "Connection lost. Reconnecting...";
+      setTestPanelMessage(message);
+      toast("warning", message);
+      return;
+    }
 
     if (result) {
       toast("success", "Zone status updated.");
