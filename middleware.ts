@@ -1,30 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const rolePath = {
-  player: "/player",
-  zone_owner: "/zone",
-  manager: "/zone",
-  admin: "/admin"
-} as const;
-
 const protectedPages = [
-  { prefix: "/player", role: "player" },
-  { prefix: "/zone", role: "zone_owner" },
-  { prefix: "/admin", role: "admin" }
+  { prefix: "/player" },
+  { prefix: "/zone" },
+  { prefix: "/admin" }
 ] as const;
 
-function decodeJwtPayload(token?: string): { app_metadata?: { role?: keyof typeof rolePath }; user_metadata?: { role?: keyof typeof rolePath }; role?: keyof typeof rolePath } | null {
-  if (!token) {
-    return null;
+function loginRedirectUrl(request: NextRequest) {
+  const loginUrl = new URL("/login", request.url);
+  const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+
+  if (nextPath.startsWith("/") && !nextPath.startsWith("//")) {
+    loginUrl.searchParams.set("next", nextPath);
   }
 
-  try {
-    const payload = token.split(".")[1];
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(atob(base64));
-  } catch {
-    return null;
-  }
+  return loginUrl;
 }
 
 export function middleware(request: NextRequest) {
@@ -34,19 +24,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const payload = decodeJwtPayload(request.cookies.get("sb_access_token")?.value);
-  const role = payload?.app_metadata?.role ?? payload?.user_metadata?.role ?? payload?.role;
-
-  if (!role) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  if (match.prefix === "/zone" && role === "manager") {
-    return NextResponse.next();
-  }
-
-  if (role !== match.role) {
-    return NextResponse.redirect(new URL(rolePath[role] ?? "/login", request.url));
+  if (!request.cookies.get("sb_access_token")?.value) {
+    return NextResponse.redirect(loginRedirectUrl(request));
   }
 
   return NextResponse.next();

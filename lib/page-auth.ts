@@ -10,16 +10,18 @@ const rolePath: Record<WebRole, string> = {
 
 export async function requirePageRole(role: WebRole | WebRole[]) {
   const roles = Array.isArray(role) ? role : [role];
+  let profile;
 
   try {
-    const { profile } = await requireWebUser();
-
-    if (!roles.includes(profile.role)) {
-      redirect(rolePath[profile.role] ?? "/login");
-    }
-
-    return profile;
+    const result = await requireWebUser();
+    profile = result.profile;
   } catch {
     redirect("/login");
   }
+
+  if (!roles.includes(profile.role)) {
+    redirect(rolePath[profile.role] ?? "/login");
+  }
+
+  return profile;
 }
