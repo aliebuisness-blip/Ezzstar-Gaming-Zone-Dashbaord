@@ -135,13 +135,15 @@ function mapDashboardUser(user: any): Player {
     banner: user.banner ?? user.banner_url ?? "",
     bio: user.bio ?? "",
     email: user.email ?? "",
+    role: user.role ?? "player",
     membership: user.membership ?? (user.role === "player" ? "Starter" : "Operator"),
     favoriteGames: asArray<string>(user.favoriteGames),
     favoriteZones: asArray<string>(user.favoriteZones),
     xp: Number(user.xp ?? 0),
     level: Number(user.level ?? 1),
     onlineStatus: user.onlineStatus ?? "online",
-    balance: Number(user.spica_balance ?? user.balance ?? 0)
+    balance: Number(user.spica_balance ?? user.spicaBalance ?? user.balance ?? 0),
+    spicaBalance: Number(user.spica_balance ?? user.spicaBalance ?? user.balance ?? 0)
   };
 }
 

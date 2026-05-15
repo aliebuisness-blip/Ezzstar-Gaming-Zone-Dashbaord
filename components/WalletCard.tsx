@@ -16,15 +16,31 @@ type WalletCardProps = {
 export function WalletCard({ players, selectedPlayerId, onPlayerChange, onBuySpica, onRequestWithdrawal, showWithdrawal = false }: WalletCardProps) {
   const [buyAmount, setBuyAmount] = useState(1000);
   const [withdrawAmount, setWithdrawAmount] = useState(250);
-  const selectedPlayer = players.find((player) => player.id === selectedPlayerId) ?? players[0];
+  const selectedPlayer = players.find((player) => player.id === selectedPlayerId) ?? players[0] ?? {
+    id: "",
+    name: "Player",
+    username: "player",
+    email: "",
+    membership: "Starter",
+    favoriteZones: [],
+    balance: 0
+  };
+  const selectedPlayerName = selectedPlayer.name || selectedPlayer.username || selectedPlayer.email || "Player";
+  const canTransact = Boolean(selectedPlayer.id);
 
   function handleBuy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canTransact) {
+      return;
+    }
     onBuySpica(selectedPlayer.id, Math.max(1, buyAmount));
   }
 
   function handleWithdrawal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canTransact) {
+      return;
+    }
     onRequestWithdrawal(selectedPlayer.id, Math.max(1, withdrawAmount), "Player");
   }
 
@@ -37,7 +53,7 @@ export function WalletCard({ players, selectedPlayerId, onPlayerChange, onBuySpi
           </div>
           <div className="min-w-0">
             <p className="text-sm text-slate-500">Global Ezzstar Player Wallet</p>
-            <h3 className="truncate text-lg font-semibold text-white sm:text-xl">{selectedPlayer.name}</h3>
+            <h3 className="truncate text-lg font-semibold text-white sm:text-xl">{selectedPlayerName}</h3>
             <p className="mt-1 truncate text-xs text-cyan-100">@{selectedPlayer.username ?? "player"} - {selectedPlayer.membership ?? "Starter"}</p>
           </div>
         </div>
@@ -59,13 +75,13 @@ export function WalletCard({ players, selectedPlayerId, onPlayerChange, onBuySpi
           <select
             className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50"
             onChange={(event) => onPlayerChange(event.target.value)}
-            value={selectedPlayerId}
+            value={selectedPlayer.id}
           >
-            {players.map((player) => (
+            {players.length ? players.map((player) => (
               <option key={player.id} value={player.id}>
-                {player.name}
+                {player.name || player.username || player.email || "Player"}
               </option>
-            ))}
+            )) : <option value="">Player profile loading</option>}
           </select>
           <input
             className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50"
@@ -74,7 +90,7 @@ export function WalletCard({ players, selectedPlayerId, onPlayerChange, onBuySpi
             type="number"
             value={buyAmount}
           />
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-100/60 hover:shadow-[0_0_28px_rgba(34,211,238,0.22)]" type="submit">
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-100/60 hover:shadow-[0_0_28px_rgba(34,211,238,0.22)] disabled:cursor-not-allowed disabled:opacity-50" disabled={!canTransact} type="submit">
             <Coins className="h-4 w-4" />
             Buy SPICA
           </button>
@@ -100,7 +116,7 @@ export function WalletCard({ players, selectedPlayerId, onPlayerChange, onBuySpi
               type="number"
               value={withdrawAmount}
             />
-            <button className="w-full rounded-2xl border border-purple-300/25 bg-purple-300/15 px-5 py-3 text-sm font-semibold text-purple-50 transition hover:border-purple-100/60 hover:shadow-[0_0_28px_rgba(168,85,247,0.22)]" type="submit">
+            <button className="w-full rounded-2xl border border-purple-300/25 bg-purple-300/15 px-5 py-3 text-sm font-semibold text-purple-50 transition hover:border-purple-100/60 hover:shadow-[0_0_28px_rgba(168,85,247,0.22)] disabled:cursor-not-allowed disabled:opacity-50" disabled={!canTransact} type="submit">
               Request Payout
             </button>
           </form>

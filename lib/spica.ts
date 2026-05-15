@@ -27,6 +27,7 @@ export type Player = {
   banner?: string | null;
   bio?: string | null;
   email?: string;
+  role?: string;
   membership?: string;
   favoriteGames?: string[];
   favoriteZones?: string[];
@@ -34,6 +35,7 @@ export type Player = {
   level?: number;
   onlineStatus?: string;
   balance: number;
+  spicaBalance?: number;
 };
 
 export type GamingPc = {
