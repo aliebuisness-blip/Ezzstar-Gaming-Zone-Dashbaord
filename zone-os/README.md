@@ -16,12 +16,37 @@ SPICA Zone OS owns:
 - zone settings
 - local operator activity
 
+## Local Runtime
+
+For the current repo phase, run the compatibility Zone OS routes from the repo root:
+
+```powershell
+npm run zone-os:setup
+npm run zone-os:setup:db
+npm run realtime
+npm run zone-os:dev
+```
+
+Open:
+
+```txt
+http://localhost:3000/zone
+```
+
+Use `/zone-os` to see detected LAN URLs and realtime connection details.
+
+Full setup notes live in:
+
+```txt
+docs/ZONE_OS_LOCAL_RUNTIME.md
+```
+
 ## Current Dependency Model
 
-For now, Zone OS continues to depend on the shared backend/API layer in the main repository:
+For now, Zone OS continues to depend on the shared local backend/API layer in the main repository:
 
-- Prisma/Postgres operational data
-- auth/session cookies
+- local Prisma/Postgres operational data
+- Supabase web identity/profile validation
 - `/api/dashboard`
 - `/api/pcs`
 - `/api/pc-pairing`
