@@ -7,9 +7,31 @@ function getRootDir() {
   return path.resolve(__dirname, "..", "..");
 }
 
-function getBin(name) {
-  const suffix = process.platform === "win32" ? ".cmd" : "";
-  return path.join(getRootDir(), "node_modules", ".bin", `${name}${suffix}`);
+function getNodeExecutable() {
+  return process.env.ZONE_OS_NODE_PATH || process.env.npm_node_execpath || process.execPath;
+}
+
+function getNodeEnv(extraEnv = {}) {
+  const nodeExecutable = getNodeExecutable();
+  const usesElectronAsNode = Boolean(process.versions.electron) && nodeExecutable === process.execPath;
+  return {
+    ...process.env,
+    ...(usesElectronAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+    ...extraEnv
+  };
+}
+
+function resolvePackageFile(packageName, relativeFile) {
+  const packageJson = require.resolve(`${packageName}/package.json`, { paths: [getRootDir()] });
+  return path.join(path.dirname(packageJson), relativeFile);
+}
+
+function getNextCli() {
+  return resolvePackageFile("next", path.join("dist", "bin", "next"));
+}
+
+function getTsxCli() {
+  return resolvePackageFile("tsx", path.join("dist", "cli.cjs"));
 }
 
 function getUsableLanIp() {
@@ -74,11 +96,8 @@ function isHttpUp(url) {
 function spawnManaged(label, command, args, options = {}) {
   const child = spawn(command, args, {
     cwd: getRootDir(),
-    env: {
-      ...process.env,
-      ...options.env
-    },
-    shell: process.platform === "win32",
+    env: options.nodeChild ? getNodeEnv(options.env) : { ...process.env, ...options.env },
+    shell: false,
     windowsHide: true
   });
 
@@ -97,11 +116,19 @@ function spawnManaged(label, command, args, options = {}) {
   return child;
 }
 
+function spawnNodeManaged(label, scriptPath, args, options = {}) {
+  return spawnManaged(label, getNodeExecutable(), [scriptPath, ...args], { ...options, nodeChild: true });
+}
+
 module.exports = {
-  getBin,
+  getNextCli,
+  getNodeEnv,
+  getNodeExecutable,
   getRootDir,
+  getTsxCli,
   getUsableLanIp,
   isHttpUp,
   spawnManaged,
+  spawnNodeManaged,
   waitForHttp
 };

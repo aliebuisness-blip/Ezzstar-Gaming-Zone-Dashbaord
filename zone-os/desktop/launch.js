@@ -19,8 +19,12 @@ if (!electronPath) {
 
 const child = spawn(electronPath, [path.join(__dirname, "main.js")], {
   cwd: path.resolve(__dirname, "..", ".."),
+  env: {
+    ...process.env,
+    ZONE_OS_NODE_PATH: process.execPath
+  },
   stdio: "inherit",
-  shell: process.platform === "win32"
+  shell: false
 });
 
 child.on("exit", (code) => {

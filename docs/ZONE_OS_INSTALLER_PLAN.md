@@ -45,20 +45,36 @@ npm install --save-dev electron electron-builder
 
 ## PostgreSQL Options
 
-Option A: bundled PostgreSQL
+Option A: guided PostgreSQL setup
 
-- best for non-technical owners
-- installer creates `spica_arena_os`
-- installer stores credentials locally
-- bigger installer size
+- safest first production path
+- desktop runtime detects PostgreSQL and explains what is missing
+- runtime creates `spica_arena_os` if PostgreSQL is reachable
+- runtime runs Prisma generate, migrations, and local baseline seed
+- smaller installer and easier support
 
-Option B: external PostgreSQL prerequisite
+Option B: bundled PostgreSQL
 
-- easier initial engineering
-- owner/support must install PostgreSQL first
-- acceptable for beta/internal deployments
+- best final owner experience
+- installer ships or downloads PostgreSQL
+- installer creates a private local database cluster
+- larger installer and more Windows service complexity
 
-Recommended: begin with Option B for pilot zones, then move to bundled PostgreSQL for public release.
+Option C: embedded local database alternative
+
+- technically simpler install flow for single-machine local apps
+- not compatible with current Prisma/Postgres operational architecture without a data-layer change
+- not recommended for this phase
+
+Recommended: use Option A now for pilot zones, then move to Option B for public release. Option A keeps the current Prisma/Postgres architecture intact while removing manual database commands for owners when PostgreSQL is already installed/running.
+
+Current automated database setup:
+
+- command: `npm run zone-os:db:setup`
+- check: `npm run zone-os:db:check`
+- repair: `npm run zone-os:repair`
+- startup integration: Electron desktop wrapper runs database setup before realtime/web startup
+- if PostgreSQL is missing/unreachable, Zone OS shows a clean setup-required screen with retry and PostgreSQL download link
 
 ## Local Secrets
 
@@ -129,11 +145,15 @@ When the Electron desktop wrapper opens:
 
 1. Show a local startup screen.
 2. Run `scripts/setup-zone-os-runtime.js`.
-3. Detect LAN IPv4.
-4. Start realtime on `REALTIME_PORT`, default `4001`.
-5. Start Zone OS web runtime on port `3000`.
-6. Show local and LAN URLs.
-7. Load `http://localhost:3000/zone`.
+3. Run `scripts/zone-os-db.js setup`.
+4. Create the local database if PostgreSQL is reachable and the database is missing.
+5. Run Prisma generate and migrations.
+6. Seed local non-destructive Zone OS baseline records.
+7. Detect LAN IPv4.
+8. Start realtime on `REALTIME_PORT`, default `4001`.
+9. Start Zone OS web runtime on port `3000`.
+10. Show local and LAN URLs.
+11. Load `http://localhost:3000/zone`.
 
 Secrets are redacted from startup logs before they are displayed.
 
