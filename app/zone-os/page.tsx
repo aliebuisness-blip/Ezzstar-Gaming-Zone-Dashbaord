@@ -1,9 +1,41 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircle2, Download, ExternalLink, Server, Wifi } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, PackageCheck, Server, Wifi } from "lucide-react";
+import { getInstallerDownloads, type InstallerDownload } from "@/lib/downloads";
 import { requirePageRole } from "@/lib/page-auth";
 import { selectRows } from "@/lib/supabase/web";
 import { getZoneOsRuntimeInfo } from "@/lib/zone-os-runtime-info";
+
+function DownloadButton({ installer, label }: { installer: InstallerDownload; label: string }) {
+  const className = installer.isAvailable
+    ? "inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/30 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-200/60 hover:bg-cyan-300/20"
+    : "inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-100 opacity-60";
+
+  if (!installer.isAvailable || !installer.downloadUrl) {
+    return (
+      <button className={className} disabled type="button">
+        <Download className="h-4 w-4" />
+        {label}
+        <span className="rounded-full border border-cyan-200/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-200">Coming soon</span>
+      </button>
+    );
+  }
+
+  const isLocalPublicFile = installer.source === "local-public";
+
+  return (
+    <a
+      className={className}
+      download={isLocalPublicFile ? installer.localFileName : undefined}
+      href={installer.downloadUrl}
+      rel={isLocalPublicFile ? undefined : "noreferrer"}
+      target={isLocalPublicFile ? undefined : "_blank"}
+    >
+      <Download className="h-4 w-4" />
+      {label}
+    </a>
+  );
+}
 
 export default async function ZoneOsLandingPage() {
   const profile = await requirePageRole(["zone_owner", "manager"]);
@@ -17,6 +49,9 @@ export default async function ZoneOsLandingPage() {
   }
 
   const runtime = getZoneOsRuntimeInfo();
+  const installers = getInstallerDownloads();
+  const zoneOsInstaller = installers.find((installer) => installer.id === "zone-os")!;
+  const pcClientInstaller = installers.find((installer) => installer.id === "pc-client")!;
 
   return (
     <main className="min-h-screen bg-[#050508] px-5 py-10 text-white">
@@ -29,11 +64,8 @@ export default async function ZoneOsLandingPage() {
           </p>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-100 opacity-75" disabled type="button">
-              <Download className="h-4 w-4" />
-              Download for Windows
-              <span className="rounded-full border border-cyan-200/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-200">Coming soon</span>
-            </button>
+            <DownloadButton installer={zoneOsInstaller} label="Download SPICA Zone OS for Windows" />
+            <DownloadButton installer={pcClientInstaller} label="Download SPICA PC Client for Windows" />
             <Link className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white" href="/zone">
               <ExternalLink className="h-4 w-4" />
               Open Local Zone OS
@@ -41,6 +73,41 @@ export default async function ZoneOsLandingPage() {
             <Link className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white" href="/docs/zone-os-local-runtime">
               View setup guide
             </Link>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-4">
+            <div className="flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-cyan-100" />
+              <h2 className="text-sm font-semibold text-white">Latest installer updates</h2>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {installers.map((installer) => (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4" key={installer.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-white">{installer.productName}</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        v{installer.version} · {installer.fileSize} · Updated {installer.updatedAt}
+                      </p>
+                    </div>
+                    <span className={installer.isAvailable ? "rounded-full border border-emerald-300/25 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100" : "rounded-full border border-amber-300/25 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100"}>
+                      {installer.isAvailable ? "Available" : "Coming soon"}
+                    </span>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm leading-5 text-slate-400">
+                    {installer.releaseNotes.map((note) => (
+                      <li className="flex gap-2" key={`${installer.id}-${note}`}>
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-100" />
+                        <span>{note}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-4">
+                    <DownloadButton installer={installer} label="Download latest" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-2">
