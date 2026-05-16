@@ -42,6 +42,13 @@ type HeartbeatPayload = {
   timestamp?: string;
 };
 
+type SessionEndedPayload = {
+  activeSessionId?: unknown;
+  sessionId?: unknown;
+  reason?: unknown;
+  remainingSeconds?: unknown;
+};
+
 type PairingRequestBody = {
   zoneId?: string;
   machineName?: string;
@@ -656,6 +663,19 @@ async function updatePcHeartbeat(pcId: string, zoneId: string, heartbeat: Heartb
     machineName: heartbeat.machineName
   });
 
+  const socket = pcClients.get(pcId);
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(
+      JSON.stringify({
+        type: "pc:heartbeat-ack",
+        serverTime: now.toISOString(),
+        status,
+        activeSessionId: activeSession?.sessionId ?? null,
+        remainingSeconds: activeSession?.remainingSeconds ?? 0
+      })
+    );
+  }
+
   if (activeSession && now.getTime() - (pcLastSyncAt.get(pcId) ?? 0) >= 10_000) {
     pcLastSyncAt.set(pcId, now.getTime());
     sendCommandToPc(pcId, {
@@ -804,6 +824,104 @@ async function completeExpiredSessions(filter: { pcId?: string } = {}) {
   return completedSessions;
 }
 
+async function completePcReportedSession(pcId: string, zoneId: string, payload: SessionEndedPayload) {
+  const reportedSessionId =
+    typeof payload.sessionId === "string"
+      ? payload.sessionId
+      : typeof payload.activeSessionId === "string"
+        ? payload.activeSessionId
+        : activeSessionIds.get(pcId);
+  const reason = typeof payload.reason === "string" && payload.reason.trim() ? payload.reason.trim() : "PC timer ended";
+  const activeSession = await prisma.session.findFirst({
+    where: {
+      ...(reportedSessionId ? { id: reportedSessionId } : {}),
+      pcId,
+      zoneId,
+      status: SessionStatus.active
+    },
+    include: { pc: true }
+  });
+
+  if (!activeSession) {
+    activeSessionIds.delete(pcId);
+    pcStatuses.set(pcId, PCStatus.available);
+    await prisma.pC.update({ where: { id: pcId }, data: { status: PCStatus.available } }).catch(() => undefined);
+    console.warn(`PC reported session ended, but no active session was found: ${pcId}`);
+    emitPcUpdate({
+      pcId,
+      zoneId,
+      status: PCStatus.available,
+      activeSessionId: null,
+      remainingSeconds: 0
+    });
+    emitDebugSnapshot();
+    return null;
+  }
+
+  const completed = await prisma.$transaction(async (tx) => {
+    const current = await tx.session.findUnique({ where: { id: activeSession.id } });
+
+    if (!current || current.status === SessionStatus.completed) {
+      return null;
+    }
+
+    const completedSession = await tx.session.update({
+      where: { id: current.id },
+      data: { status: SessionStatus.completed, completedAt: new Date() },
+      include: { pc: true }
+    });
+    const commission = Math.round(completedSession.gross * 0.1);
+
+    await tx.settlement.upsert({
+      where: { sessionId: completedSession.id },
+      create: {
+        zoneId: completedSession.zoneId,
+        sessionId: completedSession.id,
+        gross: completedSession.gross,
+        commission,
+        net: completedSession.gross - commission
+      },
+      update: {
+        gross: completedSession.gross,
+        commission,
+        net: completedSession.gross - commission
+      }
+    });
+    await tx.pC.update({ where: { id: completedSession.pcId }, data: { status: PCStatus.available } });
+    return completedSession;
+  });
+
+  if (!completed) {
+    return null;
+  }
+
+  activeSessionIds.delete(completed.pcId);
+  pcStatuses.set(completed.pcId, PCStatus.available);
+  console.log(`PC reported session ended: ${completed.id}`);
+  await audit("end_session", completed.playerId, { sessionId: completed.id, pcId, zoneId, reason, source: "pc_timer" });
+  emitDashboardEvent("session:ended", {
+    sessionId: completed.id,
+    pcId: completed.pcId,
+    zoneId: completed.zoneId,
+    reason: "pc_timer_ended",
+    completedAt: completed.completedAt?.toISOString() ?? new Date().toISOString()
+  });
+  emitDashboardEvent("session:update", {
+    pcId: completed.pcId,
+    command: "pc:session-ended",
+    payload: { sessionId: completed.id, reason }
+  });
+  emitPcUpdate({
+    pcId: completed.pcId,
+    zoneId: completed.zoneId,
+    status: PCStatus.available,
+    activeSessionId: null,
+    remainingSeconds: 0
+  });
+  emitDebugSnapshot();
+  return completed;
+}
+
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url || "", `http://${request.headers.host}`);
   console.log(`Incoming websocket connection URL: ${redactSensitiveUrl(url)}`);
@@ -902,6 +1020,11 @@ rawWss.on("connection", async (ws, request) => {
 
       if (event === "pc:status" && isPcStatus(payload.status)) {
         await updatePcStatus(pcId, zoneId, payload.status);
+        return;
+      }
+
+      if (event === "pc:session-ended") {
+        await completePcReportedSession(pcId, zoneId, payload);
         return;
       }
 

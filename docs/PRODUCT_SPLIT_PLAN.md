@@ -13,7 +13,7 @@ Owns:
 - list-your-zone onboarding
 - SPICA Player App routes at `/player/*`
 - Ezzstar Control Center routes at `/admin/*`
-- shared backend/API routes for the current phase
+- Supabase-backed auth/profile/content/admin APIs for the web surface
 
 Does not own the long-term Zone OS operator UI. The existing `/zone/*` routes remain only as temporary compatibility routes while the Zone OS app is staged.
 
@@ -47,17 +47,15 @@ This is already a separate repository and is not part of this dashboard split.
 
 ## Shared Backend/API Dependency
 
-For Phase 1, backend logic remains in the main Next.js app:
+For the current staged phase, the local Zone OS backend logic remains in the main repository while the web surface uses Supabase:
 
-- Prisma/Postgres auth and operational data
-- JWT/cookie auth
-- player, zone, admin dashboard API data
+- local Prisma/Postgres operational data
 - PC pairing APIs
 - PC/session APIs
 - realtime server bridge
-- Supabase media storage helpers
+- Supabase identity/content helpers for web auth, profiles, admin, and player app
 
-Zone OS will consume these APIs instead of duplicating Prisma/business logic.
+Zone OS will consume local operational APIs instead of duplicating Prisma/business logic.
 
 ## Shared Code Candidates
 

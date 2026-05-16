@@ -337,7 +337,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               id: zone.id,
               name: zone.name,
               city: zone.city,
-              status: zone.status === "active" ? "Active" : zone.status === "suspended" || zone.status === "rejected" ? "Suspended" : "Pending",
+              status: zone.status === "active" || zone.status === "approved" ? "Active" : zone.status === "suspended" || zone.status === "rejected" ? "Suspended" : "Pending",
               owner: zone.owner
                 ? {
                     id: zone.owner.id,

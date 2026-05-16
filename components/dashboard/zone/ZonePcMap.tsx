@@ -22,6 +22,8 @@ type ZonePcMapProps = {
   onSendMessage: (pcId: string) => void;
 };
 
+type PcRuntimeHealth = "online" | "lagging" | "lost" | "recovering" | "desynced";
+
 const stateCopy: Record<PcMapState, { label: string; tone: "offline" | "active" | "warning" | "success" | "danger" | "neutral" | "maintenance"; tile: string; dot: string; rail: string }> = {
   offline: {
     label: "Offline",
@@ -95,6 +97,31 @@ function getHeartbeatLabel(lastHeartbeat?: number) {
   return "Lost";
 }
 
+function getRuntimeHealth(pc: GamingPc, session?: Session, remainingMs = 0): PcRuntimeHealth {
+  if (pc.recoveryWarning) return "recovering";
+  if ((pc.sessionId || pc.status === "in_use") && !session) return "desynced";
+  if (session && remainingMs <= 0) return "desynced";
+  const age = getHeartbeatAge(pc.lastHeartbeat);
+  if (age > 30_000 || pc.status === "offline") return "lost";
+  if (age > 10_000) return "lagging";
+  return "online";
+}
+
+function getRuntimeCopy(health: PcRuntimeHealth) {
+  switch (health) {
+    case "recovering":
+      return { label: "Recovering", className: "border-sky-300/20 bg-sky-300/10 text-sky-100" };
+    case "desynced":
+      return { label: "Desync", className: "border-red-300/25 bg-red-400/10 text-red-100" };
+    case "lost":
+      return { label: "Lost", className: "border-slate-500/25 bg-slate-500/10 text-slate-300" };
+    case "lagging":
+      return { label: "Lag", className: "border-amber-300/25 bg-amber-300/10 text-amber-100" };
+    default:
+      return { label: "Live", className: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" };
+  }
+}
+
 function getPcSection(pc: GamingPc) {
   const layout = pc as GamingPc & { section?: string };
   if (layout.section) return layout.section;
@@ -120,13 +147,24 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
   const sessionByPc = useMemo(() => new Map(sessions.filter((session) => session.status === "Active").map((session) => [session.pcId, session])), [sessions]);
   const pcs = zone.pcs;
   const sections = useMemo(() => ["All", ...Array.from(new Set(pcs.map(getPcSection)))], [pcs]);
-  const visiblePcs = selectedSection === "All" ? pcs : pcs.filter((pc) => getPcSection(pc) === selectedSection);
+  const pcSummaries = useMemo(() => pcs.map((pc) => {
+    const session = sessionByPc.get(pc.id);
+    const state = getPcState(pc, session);
+    const remainingMs = getRemainingMs(pc, session, remainingBySession, serverNow);
+    const runtimeHealth = getRuntimeHealth(pc, session, remainingMs);
+    return { pc, section: getPcSection(pc), session, state, remainingMs, runtimeHealth };
+  }), [pcs, remainingBySession, serverNow, sessionByPc]);
+  const visibleSummaries = selectedSection === "All" ? pcSummaries : pcSummaries.filter((item) => item.section === selectedSection);
   const selectedPc = selectedPcId ? pcs.find((pc) => pc.id === selectedPcId) ?? null : null;
   const selectedSession = selectedPc ? sessionByPc.get(selectedPc.id) : undefined;
-  const activeCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "active_session").length;
-  const offlineCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "offline").length;
-  const maintenanceCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "maintenance").length;
-  const idleCount = pcs.filter((pc) => getPcState(pc, sessionByPc.get(pc.id)) === "idle").length;
+  const activeCount = pcSummaries.filter((item) => item.state === "active_session").length;
+  const offlineCount = pcSummaries.filter((item) => item.state === "offline").length;
+  const maintenanceCount = pcSummaries.filter((item) => item.state === "maintenance").length;
+  const idleCount = pcSummaries.filter((item) => item.state === "idle").length;
+  const runtimeIssues = pcSummaries.filter((item) => item.runtimeHealth !== "online");
+  const selectedRemainingMs = selectedPc ? getRemainingMs(selectedPc, selectedSession, remainingBySession, serverNow) : 0;
+  const selectedHealth = selectedPc ? getRuntimeHealth(selectedPc, selectedSession, selectedRemainingMs) : "online";
+  const selectedHealthCopy = getRuntimeCopy(selectedHealth);
 
   if (!pcs.length) {
     return (
@@ -149,6 +187,7 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
             <StatusBadge tone="success">{`${idleCount} idle`}</StatusBadge>
             <StatusBadge tone={offlineCount ? "offline" : "success"}>{`${offlineCount} offline`}</StatusBadge>
             <StatusBadge tone={maintenanceCount ? "maintenance" : "neutral"}>{`${maintenanceCount} maintenance`}</StatusBadge>
+            {runtimeIssues.length ? <StatusBadge tone="warning">{`${runtimeIssues.length} runtime issue${runtimeIssues.length === 1 ? "" : "s"}`}</StatusBadge> : null}
           </div>
         </div>
 
@@ -175,16 +214,18 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
           </div>
         </div>
 
-        <div className="mt-3 grid min-w-0 auto-rows-[108px] grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {visiblePcs.map((pc, index) => {
-            const session = sessionByPc.get(pc.id);
-            const state = getPcState(pc, session);
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{selectedSection === "All" ? "All sections" : selectedSection}</p>
+          <p className="text-xs text-slate-500">{visibleSummaries.length} visible PC{visibleSummaries.length === 1 ? "" : "s"}</p>
+        </div>
+
+        <div className="mt-2 grid min-w-0 auto-rows-[108px] grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          {visibleSummaries.map(({ pc, section, session, state, remainingMs, runtimeHealth }, index) => {
             const copy = stateCopy[state];
-            const remainingMs = getRemainingMs(pc, session, remainingBySession, serverNow);
             const layout = pc as GamingPc & { mapX?: number; mapY?: number; section?: string };
             const playerName = session?.playerName ?? pc.activePlayerName;
             const heartbeatLabel = getHeartbeatLabel(pc.lastHeartbeat);
-            const heartbeatTone = heartbeatLabel === "Live" ? "text-emerald-200" : heartbeatLabel === "Lag" ? "text-amber-200" : "text-slate-500";
+            const healthCopy = getRuntimeCopy(runtimeHealth);
 
             return (
               <button
@@ -205,7 +246,7 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
                       <span className={`h-2 w-2 rounded-full ${copy.dot} ${state === "active_session" ? "animate-pulse" : ""}`} />
                       <p className="truncate text-sm font-semibold text-white">{pc.name}</p>
                     </div>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] opacity-70">{getPcSection(pc)} - {pc.category ?? pc.type}</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] opacity-70">{section} - {pc.category ?? pc.type}</p>
                   </div>
                   <span className="rounded-lg border border-white/10 bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-300">{pc.type}</span>
                 </div>
@@ -217,7 +258,7 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     {playerName ? <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-black/30 text-[10px] font-bold text-cyan-100">{getInitials(playerName)}</span> : <MoreHorizontal className="h-4 w-4 opacity-35" />}
-                    <span className={`inline-flex items-center gap-1 text-[10px] ${heartbeatTone}`}><Signal className="h-3 w-3" /> {heartbeatLabel}</span>
+                    <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${healthCopy.className}`}><Signal className="h-3 w-3" /> {healthCopy.label === "Live" ? heartbeatLabel : healthCopy.label}</span>
                   </div>
                 </div>
                 {state === "maintenance" ? <Lock className="absolute bottom-2 right-2 h-3.5 w-3.5 text-amber-100/70" /> : null}
@@ -251,6 +292,10 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
                     </div>
 
                     <div className="mt-3 grid gap-2 text-sm">
+                      <div className={`flex items-center justify-between rounded-xl border px-3 py-2 ${selectedHealthCopy.className}`}>
+                        <span className="flex items-center gap-2"><Signal className="h-4 w-4" /> Runtime</span>
+                        <span className="font-semibold">{selectedHealthCopy.label}</span>
+                      </div>
                       <div className="flex items-center justify-between rounded-xl bg-black/25 px-3 py-2">
                         <span className="flex items-center gap-2 text-slate-400"><UserRound className="h-4 w-4" /> Player</span>
                         <span className="max-w-36 truncate text-white">{selectedSession?.playerName ?? selectedPc.activePlayerName ?? "None"}</span>
@@ -263,6 +308,16 @@ export function ZonePcMap({ zone, sessions, remainingBySession, serverNow, onSta
                         <span className="flex items-center gap-2 text-slate-400"><Radio className="h-4 w-4" /> Heartbeat</span>
                         <span className="text-white">{formatHeartbeat(selectedPc.lastHeartbeat)}</span>
                       </div>
+                      {selectedPc.recoveryWarning ? (
+                        <div className="rounded-xl border border-sky-300/20 bg-sky-300/10 px-3 py-2 text-xs text-sky-100">
+                          {selectedPc.recoveryWarning}
+                        </div>
+                      ) : null}
+                      {selectedHealth === "desynced" ? (
+                        <div className="rounded-xl border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs text-red-100">
+                          Session/runtime state needs operator review.
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
