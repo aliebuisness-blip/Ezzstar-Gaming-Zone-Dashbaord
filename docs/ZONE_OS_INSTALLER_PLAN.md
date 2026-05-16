@@ -66,15 +66,34 @@ Option C: embedded local database alternative
 - not compatible with current Prisma/Postgres operational architecture without a data-layer change
 - not recommended for this phase
 
-Recommended: use Option A now for pilot zones, then move to Option B for public release. Option A keeps the current Prisma/Postgres architecture intact while removing manual database commands for owners when PostgreSQL is already installed/running.
+Recommended: use Option A with automatic official-installer download now for pilot zones, then move to a bundled or managed database package for public release. This keeps the current Prisma/Postgres architecture intact while removing manual database commands for owners when PostgreSQL is already installed/running.
 
 Current automated database setup:
 
 - command: `npm run zone-os:db:setup`
 - check: `npm run zone-os:db:check`
+- diagnose: `npm run zone-os:db:diagnose`
+- install PostgreSQL only: `npm run zone-os:db:install-postgres`
 - repair: `npm run zone-os:repair`
 - startup integration: Electron desktop wrapper runs database setup before realtime/web startup
-- if PostgreSQL is missing/unreachable, Zone OS shows a clean setup-required screen with retry and PostgreSQL download link
+- if PostgreSQL is missing/unreachable on Windows, Zone OS downloads the official EDB PostgreSQL installer and tries unattended setup
+- if unattended setup fails, Zone OS opens the downloaded installer and shows a clean retry/manual setup screen
+
+Current automatic PostgreSQL installer strategy:
+
+- default URL: `https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64.exe`
+- override URL with `POSTGRES_INSTALLER_URL`
+- use a bundled/local installer path with `POSTGRES_INSTALLER_PATH`
+- cached download path: `%TEMP%\spica-zone-os\postgresql-16.4-1-windows-x64.exe`
+- silent installer flags include unattended mode, command-line tools, server, port `5432`, and the local database password from `.env`
+- Windows may still require administrator permission/UAC for service installation
+
+Why auto-download instead of bundling now:
+
+- the PostgreSQL installer is large and would make the Zone OS installer significantly heavier
+- downloading keeps the app package smaller for pilot testing
+- `POSTGRES_INSTALLER_PATH` leaves room for a future bundled/offline installer
+- public release can later switch to a bundled installer or dedicated private PostgreSQL service package
 
 ## Local Secrets
 

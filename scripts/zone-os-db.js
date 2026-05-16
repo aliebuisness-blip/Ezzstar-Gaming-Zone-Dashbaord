@@ -1,9 +1,16 @@
 const fs = require("node:fs");
+const https = require("node:https");
+const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const root = process.cwd();
 const command = process.argv[2] || "check";
+const POSTGRES_VERSION = "16.4-1";
+const POSTGRES_INSTALLER_FILE = `postgresql-${POSTGRES_VERSION}-windows-x64.exe`;
+const DEFAULT_POSTGRES_INSTALLER_URL = `https://get.enterprisedb.com/postgresql/${POSTGRES_INSTALLER_FILE}`;
+const POSTGRES_INSTALLER_CACHE = path.join(os.tmpdir(), "spica-zone-os", POSTGRES_INSTALLER_FILE);
 
 function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
@@ -40,8 +47,46 @@ function getDatabaseConfig() {
     databaseUrl,
     adminUrl: adminUrl.toString(),
     dbName,
-    password: decodeURIComponent(url.password)
+    password: decodeURIComponent(url.password),
+    port: Number(url.port || 5432)
   };
+}
+
+function findPostgresService() {
+  if (process.platform !== "win32") return null;
+  const query = spawnSync("sc.exe", ["query", "type=", "service", "state=", "all"], {
+    encoding: "utf8",
+    windowsHide: true
+  });
+  const output = `${query.stdout || ""}\n${query.stderr || ""}`;
+  const match = output.match(/SERVICE_NAME:\s*(postgresql[^\r\n]*)/i);
+  return match?.[1]?.trim() || null;
+}
+
+function isPortReachable(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port, timeout: 1200 });
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", () => resolve(false));
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function isPortReachableSync(port) {
+  const probe = spawnSync(process.execPath, ["-e", `
+    const net = require("node:net");
+    const socket = net.createConnection({ host: "127.0.0.1", port: ${Number(port)}, timeout: 1200 });
+    socket.on("connect", () => { socket.destroy(); process.exit(0); });
+    socket.on("error", () => process.exit(1));
+    socket.on("timeout", () => { socket.destroy(); process.exit(1); });
+  `], { encoding: "utf8", windowsHide: true });
+  return probe.status === 0;
 }
 
 function findPsql() {
@@ -69,6 +114,18 @@ function findPsql() {
   }
 
   return null;
+}
+
+function detectPostgres() {
+  const config = getDatabaseConfig();
+  const psqlPath = findPsql();
+  const serviceName = findPostgresService();
+  return {
+    config,
+    psqlPath,
+    serviceName,
+    portReachable: isPortReachableSync(config.port)
+  };
 }
 
 function runNodeScript(scriptPath, args = []) {
@@ -127,17 +184,159 @@ function printResult(ok, message, detail = {}) {
   console.log(JSON.stringify({ ok, message, ...safeDetail }, null, 2));
 }
 
+function downloadFile(url, destination) {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destination);
+    const request = https.get(url, (response) => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode || 0) && response.headers.location) {
+        file.close();
+        fs.unlinkSync(destination);
+        downloadFile(response.headers.location, destination).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        file.close();
+        fs.unlink(destination, () => {});
+        reject(new Error(`PostgreSQL installer download failed with HTTP ${response.statusCode}`));
+        return;
+      }
+      response.pipe(file);
+      file.on("finish", () => {
+        file.close();
+        resolve(destination);
+      });
+    });
+    request.on("error", (error) => {
+      file.close();
+      fs.unlink(destination, () => {});
+      reject(error);
+    });
+  });
+}
+
+function downloadFileSync(url, destination) {
+  const script = `
+    const https = require("node:https");
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const url = ${JSON.stringify(url)};
+    const destination = ${JSON.stringify(destination)};
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    function download(source) {
+      return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(destination);
+        const request = https.get(source, (response) => {
+          if ([301,302,303,307,308].includes(response.statusCode || 0) && response.headers.location) {
+            file.close();
+            fs.unlink(destination, () => {});
+            download(response.headers.location).then(resolve, reject);
+            return;
+          }
+          if (response.statusCode !== 200) {
+            file.close();
+            fs.unlink(destination, () => {});
+            reject(new Error("HTTP " + response.statusCode));
+            return;
+          }
+          response.pipe(file);
+          file.on("finish", () => file.close(resolve));
+        });
+        request.on("error", (error) => {
+          file.close();
+          fs.unlink(destination, () => {});
+          reject(error);
+        });
+      });
+    }
+    download(url).then(() => process.exit(0)).catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+  `;
+  return spawnSync(process.execPath, ["-e", script], { encoding: "utf8", windowsHide: true });
+}
+
+function runPostgresInstaller(installerPath, password, port) {
+  const args = [
+    "--mode", "unattended",
+    "--unattendedmodeui", "none",
+    "--superpassword", password,
+    "--serverport", String(port),
+    "--servicename", "postgresql-x64-16",
+    "--enable-components", "server,commandlinetools"
+  ];
+  return spawnSync(installerPath, args, {
+    cwd: path.dirname(installerPath),
+    encoding: "utf8",
+    windowsHide: true
+  });
+}
+
+function openPostgresInstaller(installerPath) {
+  if (process.platform === "win32") {
+    spawnSync("cmd.exe", ["/c", "start", "", installerPath], {
+      cwd: path.dirname(installerPath),
+      windowsHide: true
+    });
+  }
+}
+
+function installPostgresIfMissing() {
+  const detection = detectPostgres();
+  if (detection.psqlPath && detection.portReachable) {
+    return { attempted: false, installed: true, reason: "PostgreSQL already detected." };
+  }
+
+  if (process.platform !== "win32") {
+    throw new Error("PostgreSQL is missing. Automatic install is currently available only on Windows.");
+  }
+
+  const installerUrl = process.env.POSTGRES_INSTALLER_URL || DEFAULT_POSTGRES_INSTALLER_URL;
+  const installerPath = process.env.POSTGRES_INSTALLER_PATH || POSTGRES_INSTALLER_CACHE;
+  console.warn("PostgreSQL was not detected. Downloading the Windows installer...");
+
+  if (!fs.existsSync(installerPath)) {
+    const download = downloadFileSync(installerUrl, installerPath);
+    if (download.status !== 0) {
+      throw new Error(`Could not download PostgreSQL installer. Open the manual installer and retry. ${download.stderr || download.stdout || ""}`.trim());
+    }
+  }
+
+  console.warn("Running PostgreSQL installer in unattended mode. Windows may require administrator permission.");
+  const install = runPostgresInstaller(installerPath, detection.config.password, detection.config.port);
+  if (install.status !== 0) {
+    openPostgresInstaller(installerPath);
+    throw new Error("Silent PostgreSQL install did not complete. The installer has been opened for guided setup. After installation, click Retry.");
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    sleep(1500);
+    const afterInstall = detectPostgres();
+    if (afterInstall.psqlPath && afterInstall.portReachable) {
+      return { attempted: true, installed: true, installerPath };
+    }
+  }
+
+  throw new Error("PostgreSQL installation completed, but the local service is not reachable yet. Confirm the service is running, then retry.");
+}
+
 function ensureDatabase() {
   const config = getDatabaseConfig();
-  const psqlPath = findPsql();
+  let psqlPath = findPsql();
 
   const migrateStatus = runPrisma(["migrate", "status"]);
   if (migrateStatus.status === 0) {
     return { config, psqlPath, databaseExisted: true, prismaReachable: true };
   }
 
+  if (!psqlPath || !isPortReachableSync(config.port)) {
+    installPostgresIfMissing();
+    psqlPath = findPsql();
+  }
+
   if (!psqlPath) {
-    throw new Error("PostgreSQL command line tools were not found. Install PostgreSQL for Windows, then retry Zone OS.");
+    throw new Error("PostgreSQL command line tools were not found after setup. Install PostgreSQL for Windows, then retry Zone OS.");
   }
 
   const reach = psql(psqlPath, config.adminUrl, "SELECT 1", config.password);
@@ -186,13 +385,35 @@ function setupDatabase() {
 }
 
 try {
+  if (command === "diagnose") {
+    const detection = detectPostgres();
+    printResult(true, "Zone OS PostgreSQL diagnostics completed.", {
+      databaseUrl: detection.config.databaseUrl,
+      psqlFound: Boolean(detection.psqlPath),
+      serviceName: detection.serviceName,
+      portReachable: detection.portReachable,
+      databaseName: detection.config.dbName
+    });
+    process.exit(0);
+  }
+
+  if (command === "install-postgres") {
+    const result = installPostgresIfMissing();
+    printResult(true, result.attempted ? "PostgreSQL automatic setup completed." : "PostgreSQL already installed.", {
+      installerPath: result.installerPath,
+      attempted: result.attempted
+    });
+    process.exit(0);
+  }
+
   if (command === "check") {
-    const config = getDatabaseConfig();
-    const psqlPath = findPsql();
+    const detection = detectPostgres();
     const status = runPrisma(["migrate", "status"]);
     printResult(status.status === 0, status.status === 0 ? "Zone OS database is reachable." : "Zone OS database needs setup.", {
-      databaseUrl: config.databaseUrl,
-      psqlFound: Boolean(psqlPath)
+      databaseUrl: detection.config.databaseUrl,
+      psqlFound: Boolean(detection.psqlPath),
+      serviceName: detection.serviceName,
+      portReachable: detection.portReachable
     });
     process.exit(status.status === 0 ? 0 : 1);
   }

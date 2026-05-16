@@ -127,10 +127,10 @@ function renderDatabaseSetupScreen(details = "") {
       <main>
         <section>
           <div class="eyebrow">Local database setup required</div>
-          <h1>PostgreSQL is needed for SPICA Zone OS</h1>
-          <p>Zone OS stores PCs, pairing, sessions, timers, settlements, and local runtime commands on this operator PC. Install PostgreSQL, confirm the service is running, then retry startup.</p>
+          <h1>PostgreSQL setup needs attention</h1>
+          <p>Zone OS tried to install or repair the local database automatically. If Windows blocked the silent installer, complete the PostgreSQL installer that opened, then retry setup.</p>
           <div class="actions">
-            <a class="button" href="https://www.postgresql.org/download/windows/">Install PostgreSQL for Windows</a>
+            <a class="button" href="https://www.postgresql.org/download/windows/">Download PostgreSQL manually</a>
             <a class="button secondary" href="spica-zone-os://retry-db">Retry setup</a>
           </div>
           <div class="diag">${safeDetails || "No unsafe diagnostics are shown here. Database passwords and secrets are redacted."}</div>
@@ -234,7 +234,7 @@ function runSetup() {
 
 function runDatabaseSetup() {
   setServiceStatus("database", "running");
-  showStartup("Preparing local database", "Checking PostgreSQL, creating the database if needed, and applying migrations.");
+  showStartup("Installing local database", "Checking PostgreSQL. If it is missing, Zone OS will download the Windows installer, run setup, apply migrations, and seed baseline records.");
   const result = spawnSync(getNodeExecutable(), [path.join(getRootDir(), "scripts", "zone-os-db.js"), "setup"], {
     cwd: getRootDir(),
     env: getNodeEnv(),
