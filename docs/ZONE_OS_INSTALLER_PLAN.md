@@ -22,10 +22,26 @@ The Windows installer should:
 
 Recommended staged path:
 
-1. Package current Next.js Zone OS compatibility surface with a Node runtime.
-2. Add a Windows service for `server/realtime.ts`.
-3. Add a setup wizard for database/runtime checks.
-4. Later wrap the operator UI in Electron or Tauri for a desktop app feel.
+1. Wrap the current Zone OS surface in Electron.
+2. On launch, run the local runtime setup check.
+3. Start `server/realtime.ts` automatically.
+4. Start the local Next.js Zone OS runtime automatically.
+5. Open `/zone` in a desktop operator window.
+6. Package the wrapper with Electron Builder for Windows.
+
+Current scaffold:
+
+- Desktop entry: `zone-os/desktop/main.js`
+- Desktop launcher: `zone-os/desktop/launch.js`
+- Builder config: `zone-os/electron-builder.json`
+- Dev command: `npm run zone-os:desktop:dev`
+- Installer command: `npm run zone-os:installer`
+
+Packaging dependencies are intentionally not bundled into source control. Install them in the packaging environment:
+
+```powershell
+npm install --save-dev electron electron-builder
+```
 
 ## PostgreSQL Options
 
@@ -56,7 +72,7 @@ Secrets are stored only on the operator PC and must not be committed or uploaded
 
 ## Realtime Service
 
-Realtime server should run as a background Windows service:
+Current desktop wrapper starts realtime as a child process. Production installer should eventually promote it to a background Windows service:
 
 - starts on boot
 - restarts on crash
@@ -72,6 +88,11 @@ Installer should:
 - request Windows Firewall allow rules for ports `3000` and `4001`
 - warn if only virtual adapters are detected
 - show the final PC client LAN URL
+
+Current desktop startup screen shows a firewall note:
+
+- allow port `3000` for the Zone OS operator web UI
+- allow port `4001` for PC Client WebSocket/realtime pairing
 
 ## First Login / Ownership Verification
 
@@ -101,6 +122,20 @@ Installer should include:
 - reset PC pairing
 - backup database
 - reset local database after explicit confirmation
+
+## Current Startup Flow
+
+When the Electron desktop wrapper opens:
+
+1. Show a local startup screen.
+2. Run `scripts/setup-zone-os-runtime.js`.
+3. Detect LAN IPv4.
+4. Start realtime on `REALTIME_PORT`, default `4001`.
+5. Start Zone OS web runtime on port `3000`.
+6. Show local and LAN URLs.
+7. Load `http://localhost:3000/zone`.
+
+Secrets are redacted from startup logs before they are displayed.
 
 ## Not In Scope
 

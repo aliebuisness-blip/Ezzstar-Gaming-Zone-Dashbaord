@@ -1,0 +1,40 @@
+{
+  "appId": "com.ezzstar.spica-zone-os",
+  "productName": "SPICA Zone OS",
+  "directories": {
+    "output": "release/zone-os"
+  },
+  "files": [
+    "zone-os/desktop/**/*",
+    "app/**/*",
+    "components/**/*",
+    "context/**/*",
+    "lib/**/*",
+    "server/**/*",
+    "scripts/**/*",
+    "prisma/**/*",
+    "public/**/*",
+    "node_modules/**/*",
+    ".next/**/*",
+    ".env.example",
+    "next.config.*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "zone-os/desktop/main.js"
+  },
+  "asar": false,
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "artifactName": "SPICA-Zone-OS-${version}-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  }
+}
